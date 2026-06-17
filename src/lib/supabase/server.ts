@@ -1,0 +1,26 @@
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import { getSupabaseConfig } from "./config";
+
+export async function createClient() {
+  const cookieStore = await cookies();
+  const { url, key } = getSupabaseConfig();
+
+  return createServerClient(url, key, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet, headers) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options),
+          );
+          Object.entries(headers).forEach(() => undefined);
+        } catch {
+          // O proxy atualiza cookies quando Server Components não podem escrevê-los.
+        }
+      },
+    },
+  });
+}
