@@ -99,6 +99,28 @@ const movementCards = [
   ["Prova", "Checkpoint, evolução documentada e autorização antes de qualquer história pública."],
 ];
 
+const constructionRules = [
+  ["Símbolo", "Três módulos quadrados verticais, equilibrados em proporção e peso visual."],
+  ["Wordmark", "Tipografia bold, geométrica e de grande presença."],
+  ["Tagline", "Cinza leve e neutro para criar respiro entre força e sobriedade."],
+  ["Proteção", "A distância mínima deve ser equivalente à altura de um dos quadrados."],
+];
+
+const applicationAssets = [
+  ["Squeeze", "/brand/applications/squeeze-colorido.jpg", "Aplicação colorida para eventos, aulas e ativações."],
+  ["Mochila", "/brand/applications/mochila.jpg", "Uso premium em acessórios com contraste alto."],
+  ["Fachada", "/brand/applications/fachada-vidro.jpg", "Marca em ambiente físico com leitura à distância."],
+  ["Boné", "/brand/applications/bone.jpg", "Aplicação têxtil compacta com selo cromático."],
+  ["Uniformes", "/brand/applications/uniformes.jpg", "Sistema de roupa por turma, equipe e experiência."],
+  ["Meias", "/brand/applications/meias.jpg", "Peça de movimento com marca vertical."],
+  ["Caderno", "/brand/applications/caderno.jpg", "Material institucional e acompanhamento."],
+  ["Pôster", "/brand/applications/poster.jpg", "Comunicação ambiental de alta performance."],
+  ["Garrafas", "/brand/applications/garrafas.jpg", "Extensão da paleta em objetos de rotina."],
+  ["Selo premium", "/brand/applications/selo-premium.jpg", "Reconhecimento, certificação e rituais."],
+  ["Paleta oficial", "/brand/applications/paleta-oficial.jpg", "Códigos extraídos do manual original."],
+  ["Tipografia", "/brand/applications/tipografia-futura.jpg", "Futura 100 Family como referência institucional."],
+];
+
 export default function BrandbookHome() {
   return (
     <article className="brand-guidelines">
@@ -134,6 +156,8 @@ export default function BrandbookHome() {
           ["#essencia", "Essência"],
           ["#logomarcas", "Logomarcas"],
           ["#paleta", "Paleta"],
+          ["#construcao", "Construção"],
+          ["#aplicacoes", "Aplicações"],
           ["#voz", "Voz"],
           ["#movimento", "Movimento"],
           ["#uso", "Uso correto"],
@@ -213,6 +237,69 @@ export default function BrandbookHome() {
               </div>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section id="construcao" className="mt-12 grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+        <div className="panel p-6">
+          <p className="brand-kicker">Construção do logotipo</p>
+          <h2 className="font-heading text-3xl font-semibold">Módulos, presença e respiro.</h2>
+          <p className="muted mt-4 leading-7">
+            O logotipo combina o símbolo dos três blocos com uma assinatura verbal forte. A
+            relação entre módulos, palavra e tagline precisa ser preservada para manter
+            reconhecimento em fachada, roupa, objeto, documento e tela.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {constructionRules.map(([title, text]) => (
+            <article key={title} className="panel p-5">
+              <p className="brand-index-number">{title}</p>
+              <p className="mt-6 text-sm font-bold leading-6">{text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="aplicacoes" className="mt-12">
+        <div className="mb-5">
+          <p className="brand-kicker">Aplicação de marca</p>
+          <h2 className="font-heading text-3xl font-semibold sm:text-4xl">A identidade precisa funcionar fora da tela.</h2>
+          <p className="muted mt-3 max-w-3xl leading-7">
+            O manual mostra a Triade como sistema físico: fachada, acessórios, uniforme,
+            materiais de rotina, selos e experiências presenciais. A regra é manter contraste,
+            proporção e função das cores em cada suporte.
+          </p>
+        </div>
+        <div className="application-grid">
+          {applicationAssets.map(([name, src, text], index) => (
+            <article key={name} className={`panel application-card ${index < 3 ? "application-card-wide" : ""}`}>
+              <img src={src} alt={`Aplicação de marca - ${name}`} />
+              <div className="p-4">
+                <h3 className="font-heading font-semibold">{name}</h3>
+                <p className="muted mt-1 text-sm leading-6">{text}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-12 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="panel overflow-hidden">
+          <img className="brand-wide-image" src="/brand/applications/triade-experience.jpg" alt="Tríade Experience Mulher" />
+        </div>
+        <div className="panel p-6">
+          <p className="brand-kicker">Tríade Experience</p>
+          <h2 className="font-heading text-3xl font-semibold">O braço operacional das vivências presenciais.</h2>
+          <p className="muted mt-4 leading-7">
+            O Experience aplica os fundamentos da marca em atividades reais, com estrutura,
+            acompanhamento e objetivos definidos. Cada edição deve seguir curadoria visual,
+            logística planejada, kit coerente e conexão com os três pilares da Triade.
+          </p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            {["Mulher", "Corrida", "Yoga"].map((item) => (
+              <span key={item} className="rounded-xl border border-[var(--border)] bg-[var(--muted)] px-3 py-3 text-center text-xs font-extrabold">{item}</span>
+            ))}
+          </div>
         </div>
       </section>
 

@@ -427,6 +427,38 @@ export const assetDirectory = [
     name: "TSP preto",
     description: "Monograma transparente para avatares e espaços compactos em fundo claro.",
   },
+  {
+    id: "aplicacao-fachada",
+    href: "/brand/applications/fachada-vidro.jpg",
+    group: "Fundamentos",
+    category: "Aplicação",
+    name: "Fachada e vidro",
+    description: "Exemplo de marca em ambiente físico com alta leitura e contraste.",
+  },
+  {
+    id: "aplicacao-uniformes",
+    href: "/brand/applications/uniformes.jpg",
+    group: "Fundamentos",
+    category: "Aplicação",
+    name: "Uniformes",
+    description: "Sistema de roupa para equipe, turmas e experiências presenciais.",
+  },
+  {
+    id: "aplicacao-experience",
+    href: "/brand/applications/triade-experience.jpg",
+    group: "Marca",
+    category: "Experience",
+    name: "Triade Experience",
+    description: "Braço operacional da marca para vivências presenciais e ativações.",
+  },
+  {
+    id: "aplicacao-paleta",
+    href: "/brand/applications/paleta-oficial.jpg",
+    group: "Fundamentos",
+    category: "Manual",
+    name: "Paleta oficial",
+    description: "Página do manual com os códigos cromáticos oficiais.",
+  },
 ];
 
 export function getBrandSection(slug: string) {
