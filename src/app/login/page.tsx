@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import Image from "next/image";
 import { getSession } from "@/lib/auth";
 import { LoginForm } from "./login-form";
 import { ThemeSwitcher } from "@/components/theme-switcher";
@@ -12,7 +11,7 @@ export default async function LoginPage() {
       <section className="relative hidden overflow-hidden bg-[var(--navy)] p-14 text-white lg:flex lg:flex-col lg:justify-between">
         <div className="absolute -right-24 top-12 size-96 rounded-full bg-emerald-400/20 blur-3xl" />
         <div className="relative flex items-center gap-3">
-          <Image className="object-contain" src="/brand/selo-triade-branco.png" width={44} height={44} alt="" />
+          <img className="size-11 object-contain" src="/brand/tsp-branco-transparente.png" alt="" />
           <div>
             <p className="font-heading text-xl font-bold">Triade TSP</p>
             <p className="text-xs text-slate-300">Saúde & Performance</p>

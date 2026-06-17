@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   BookOpenText,
@@ -14,6 +13,7 @@ import {
   Gauge,
   ListTodo,
   LogOut,
+  Megaphone,
   Menu,
   PlugZap,
   Search,
@@ -40,6 +40,7 @@ const navigation = [
     label: "Inteligência",
     items: [
       { href: "/app/base-inteligencia", label: "Base de conhecimento", icon: BrainCircuit },
+      { href: "/app/movimento", label: "Movimento Triade", icon: Megaphone },
       { href: "/app/marca", label: "Brandbook TSP", icon: BookOpenText },
       { href: "/app/marca/diretorio", label: "Diretório do sistema", icon: Component },
     ],
@@ -64,7 +65,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
       <aside className={`app-sidebar fixed inset-y-0 left-0 z-50 flex w-72 flex-col p-5 transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="mb-7 flex items-center justify-between">
           <Link href="/app/dashboard" className="flex items-center gap-3">
-            <Image className="size-11 object-contain" src="/brand/selo-triade-branco.png" width={44} height={44} alt="" />
+            <img className="size-11 object-contain" src="/brand/tsp-branco-transparente.png" alt="" />
             <div>
               <p className="font-heading font-bold">Triade TSP</p>
               <p className="sidebar-muted text-[11px]">Saúde & Performance</p>
