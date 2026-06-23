@@ -1,69 +1,330 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Bot, CalendarDays, KanbanSquare, List, Plus, Send, SlidersHorizontal } from "lucide-react";
-import { type TaskStatus, tasks as fallbackTasks } from "@/lib/data";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Bot,
+  CalendarDays,
+  KanbanSquare,
+  List,
+  Plus,
+  Send,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/page-parts";
+import { useTasksStore } from "@/hooks/useTasksStore";
+import { type FilterCriteria, type TaskStatus } from "@/lib/tasks/schema";
+import { applyParseResult, parseCommand } from "@/lib/tasks/parser";
+import { NewTaskDialog } from "@/components/tasks/NewTaskDialog";
+import { FilterPanel, criteriaToParams, paramsToCriteria } from "@/components/tasks/FilterPanel";
+import { KanbanView } from "@/components/tasks/KanbanView";
+import { TaskList } from "@/components/tasks/TaskList";
+import { CalendarView } from "@/components/tasks/CalendarView";
 
-const statuses: TaskStatus[] = ["Backlog", "A Fazer", "Em andamento", "Em revisão", "Bloqueada", "Concluída"];
+type ViewMode = "list" | "kanban" | "calendar";
 
-type TaskItem = (typeof fallbackTasks)[number];
-
-export function TasksWorkspace({ initialTasks }: { initialTasks: TaskItem[] }) {
-  const [tasks, setTasks] = useState(initialTasks);
-  const [view, setView] = useState<"list" | "kanban">("list");
+function TasksWorkspaceInner() {
+  const { tasks, hydrated, addTask, updateTask, filterTasks } = useTasksStore();
+  const [view, setView] = useState<ViewMode>("list");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogKey, setDialogKey] = useState(0);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [criteria, setCriteria] = useState<FilterCriteria>({});
   const [command, setCommand] = useState("");
-  const [response, setResponse] = useState("Posso criar, filtrar, resumir e reorganizar tarefas. Ações em lote sempre pedem confirmação.");
-  const grouped = useMemo(() => Object.fromEntries(statuses.map((status) => [status, tasks.filter((task) => task.status === status)])), [tasks]);
+  const [response, setResponse] = useState(
+    "Posso criar, filtrar, resumir e mudar status de tarefas. Tudo local, sem chamadas de API.",
+  );
 
-  async function runCommand() {
-    if (!command.trim()) return;
-    const submitted = command;
+  // Sincroniza filtros com URL
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const parsed = paramsToCriteria(params);
+    if (Object.keys(parsed).length > 0) setCriteria(parsed);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = criteriaToParams(criteria);
+    const search = params.toString();
+    const newUrl = `${window.location.pathname}${search ? `?${search}` : ""}`;
+    window.history.replaceState(null, "", newUrl);
+  }, [criteria]);
+
+  // Atalho global "N" para abrir nova tarefa
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (dialogOpen || filterPanelOpen) return;
+      const target = event.target as HTMLElement | null;
+      const isEditing =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable;
+      if (isEditing) return;
+      if (event.key.toLowerCase() === "n" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        setDialogKey((n) => n + 1);
+        setDialogOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [dialogOpen, filterPanelOpen]);
+
+  const filteredTasks = useMemo(() => filterTasks(criteria), [filterTasks, criteria]);
+
+  const handleMoveStatus = useCallback(
+    (id: string, status: TaskStatus) => {
+      updateTask(id, { status });
+    },
+    [updateTask],
+  );
+
+  const handleReschedule = useCallback(
+    (id: string, dueIso: string) => {
+      updateTask(id, { due: dueIso });
+    },
+    [updateTask],
+  );
+
+  function runCommand() {
+    const submitted = command.trim();
+    if (!submitted) return;
     setCommand("");
-    setResponse("Processando comando...");
-    const response = await fetch("/api/tasks/command", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ command: submitted }),
-    });
-    const result = await response.json();
-    setResponse(response.ok ? result.response : result.error);
-    if (response.ok && result.task) {
-      setTasks((current) => [{
-        ...(current[0] || fallbackTasks[0]),
-        id: result.task.id,
-        title: result.task.title,
-        status: "A Fazer",
-      }, ...current]);
+    const parsed = parseCommand(submitted);
+    if (parsed.intent === "create") {
+      const created = addTask({
+        title: parsed.data.title,
+        status: parsed.data.status ?? "A Fazer",
+        assignee: parsed.data.assignee,
+        due: parsed.data.due,
+        priority: parsed.data.priority,
+      });
+      setResponse(`${parsed.response} (id ${created.id.slice(0, 8)})`);
+      return;
     }
+    if (parsed.intent === "filter") {
+      setCriteria(parsed.data);
+      setResponse(parsed.response);
+      return;
+    }
+    if (parsed.intent === "status-change") {
+      const applied = applyParseResult(parsed, tasks);
+      if (applied.affected) {
+        updateTask(applied.affected.id, { status: parsed.data.status });
+        setResponse(`${parsed.response} → "${applied.affected.title}".`);
+      } else {
+        setResponse(applied.response);
+      }
+      return;
+    }
+    if (parsed.intent === "summarize") {
+      const applied = applyParseResult(parsed, tasks);
+      setResponse(applied.response);
+      return;
+    }
+    setResponse(parsed.response);
+  }
+
+  const activeFilters = useMemo(() => buildFilterBadges(criteria), [criteria]);
+
+  function removeFilter(field: keyof FilterCriteria, value?: string) {
+    const next: FilterCriteria = { ...criteria };
+    if (field === "dueFrom" || field === "dueTo" || field === "search") {
+      delete next[field];
+    } else if (value && Array.isArray(next[field])) {
+      const arr = (next[field] as string[]).filter((entry) => entry !== value);
+      if (arr.length === 0) delete next[field];
+      else (next[field] as string[]) = arr;
+    }
+    setCriteria(next);
+  }
+
+  if (!hydrated) {
+    return (
+      <div className="panel grid place-items-center p-10 text-sm text-slate-500">
+        Carregando tarefas…
+      </div>
+    );
   }
 
   return (
     <div>
       <section className="mb-6 overflow-hidden rounded-[1.5rem] bg-[var(--navy)] text-white shadow-xl shadow-slate-900/10">
-        <div className="flex items-center gap-3 border-b border-white/10 p-5"><div className="grid size-10 place-items-center rounded-xl bg-emerald-400 text-[var(--navy)]"><Bot /></div><div><h2 className="font-heading font-semibold">Chat de Comando</h2><p className="text-xs text-slate-400">Ações locais com confirmação para mudanças em lote</p></div></div>
+        <div className="flex items-center gap-3 border-b border-white/10 p-5">
+          <div className="grid size-10 place-items-center rounded-xl bg-emerald-400 text-[var(--navy)]">
+            <Bot />
+          </div>
+          <div>
+            <h2 className="font-heading font-semibold">Chat de Comando</h2>
+            <p className="text-xs text-slate-400">
+              Local, determinístico. Atalho: pressione <kbd className="rounded bg-white/10 px-1.5 text-[10px]">N</kbd> para nova tarefa.
+            </p>
+          </div>
+        </div>
         <div className="p-5">
           <p className="mb-4 max-w-3xl text-sm leading-6 text-slate-300">{response}</p>
-          <div className="flex gap-2"><input value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void runCommand(); }} className="h-12 flex-1 rounded-xl border border-white/10 bg-white/10 px-4 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-400" placeholder="Ex.: Crie uma tarefa para João revisar o dashboard até sexta." /><button onClick={() => void runCommand()} className="grid size-12 place-items-center rounded-xl bg-emerald-400 text-[var(--navy)]"><Send className="size-4" /></button></div>
+          <div className="flex gap-2">
+            <input
+              value={command}
+              onChange={(event) => setCommand(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") runCommand();
+              }}
+              className="h-12 flex-1 rounded-xl border border-white/10 bg-white/10 px-4 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-400"
+              placeholder='Ex.: "Crie tarefa para João revisar até sexta" · "Mostre tarefas bloqueadas"'
+            />
+            <button
+              onClick={runCommand}
+              aria-label="Executar comando"
+              className="grid size-12 place-items-center rounded-xl bg-emerald-400 text-[var(--navy)]"
+            >
+              <Send className="size-4" />
+            </button>
+          </div>
         </div>
       </section>
+
       <div className="mb-5 flex flex-wrap items-center gap-2">
-        <button onClick={() => setView("list")} className={`flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-bold ${view === "list" ? "bg-[var(--navy)] text-white" : "border border-[var(--border)] bg-white"}`}><List className="size-4" />Lista</button>
-        <button onClick={() => setView("kanban")} className={`flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-bold ${view === "kanban" ? "bg-[var(--navy)] text-white" : "border border-[var(--border)] bg-white"}`}><KanbanSquare className="size-4" />Kanban</button>
-        <button className="flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-bold"><CalendarDays className="size-4" />Calendário</button>
-        <button className="flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-bold"><SlidersHorizontal className="size-4" />Filtros</button>
-        <button className="ml-auto flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white"><Plus className="size-4" />Nova tarefa</button>
+        <ViewButton active={view === "list"} onClick={() => setView("list")} icon={<List className="size-4" />} label="Lista" />
+        <ViewButton active={view === "kanban"} onClick={() => setView("kanban")} icon={<KanbanSquare className="size-4" />} label="Kanban" />
+        <ViewButton active={view === "calendar"} onClick={() => setView("calendar")} icon={<CalendarDays className="size-4" />} label="Calendário" />
+        <button
+          type="button"
+          onClick={() => setFilterPanelOpen(true)}
+          className="flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-bold dark:bg-slate-900"
+        >
+          <SlidersHorizontal className="size-4" />
+          Filtros {activeFilters.length > 0 ? <span className="rounded-full bg-emerald-600 px-1.5 text-[10px] text-white">{activeFilters.length}</span> : null}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setDialogKey((n) => n + 1); setDialogOpen(true); }}
+          className="ml-auto flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white hover:bg-emerald-700"
+        >
+          <Plus className="size-4" />
+          Nova tarefa
+        </button>
       </div>
+
+      {activeFilters.length > 0 ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {activeFilters.map((badge) => (
+            <button
+              key={`${badge.field}:${badge.value ?? ""}`}
+              type="button"
+              onClick={() => removeFilter(badge.field, badge.value)}
+              className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-200"
+            >
+              {badge.label}
+              <X className="size-3" />
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setCriteria({})}
+            className="text-xs font-bold text-slate-500 underline-offset-2 hover:underline"
+          >
+            limpar todos
+          </button>
+        </div>
+      ) : null}
+
+      <div className="mb-4 flex items-center gap-3 text-xs text-slate-500">
+        <span>
+          Exibindo <strong>{filteredTasks.length}</strong> de {tasks.length} tarefas
+        </span>
+        {criteria.search ? <Badge tone="blue">busca: {criteria.search}</Badge> : null}
+      </div>
+
       {view === "list" ? (
-        <div className="panel overflow-hidden">
-          <div className="hidden grid-cols-[1.7fr_0.7fr_0.65fr_0.65fr_0.5fr] bg-slate-50 px-5 py-3 text-xs font-extrabold uppercase tracking-wider text-slate-400 md:grid"><span>Tarefa</span><span>Status</span><span>Responsável</span><span>Prazo</span><span>IA</span></div>
-          {tasks.map((task) => <div key={task.id} className="grid gap-3 border-t border-slate-100 px-5 py-4 first:border-0 md:grid-cols-[1.7fr_0.7fr_0.65fr_0.65fr_0.5fr] md:items-center"><div><p className="text-sm font-bold">{task.title}</p><p className="mt-1 text-xs text-slate-500">{task.project} · {task.area}</p></div><Badge tone={task.status === "Bloqueada" ? "red" : task.status === "Concluída" ? "green" : "blue"}>{task.status}</Badge><span className="text-sm font-semibold">{task.assignee}</span><span className="text-sm text-slate-500">{task.due}</span><span className="text-sm font-extrabold text-emerald-700">{task.score}</span></div>)}
-        </div>
+        <TaskList tasks={filteredTasks} />
+      ) : view === "kanban" ? (
+        <KanbanView tasks={filteredTasks} onMove={handleMoveStatus} />
       ) : (
-        <div className="grid auto-cols-[290px] grid-flow-col gap-4 overflow-x-auto pb-5">
-          {statuses.map((status) => <section key={status} className="rounded-2xl bg-slate-100/80 p-3"><div className="mb-3 flex items-center justify-between px-1"><h2 className="text-sm font-extrabold">{status}</h2><Badge>{grouped[status].length}</Badge></div><div className="space-y-3">{grouped[status].map((task) => <article key={task.id} className="rounded-xl border border-white bg-white p-4 shadow-sm"><p className="text-sm font-bold leading-5">{task.title}</p><p className="mt-3 text-xs text-slate-500">{task.assignee} · {task.due}</p><div className="mt-3"><Badge tone={task.priority === "Urgente" ? "red" : "amber"}>{task.priority}</Badge></div></article>)}</div></section>)}
-        </div>
+        <CalendarView tasks={filteredTasks} onReschedule={handleReschedule} />
       )}
+
+      <NewTaskDialog
+        key={dialogKey}
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onCreate={(input) => addTask(input)}
+      />
+
+      <FilterPanel
+        open={filterPanelOpen}
+        onClose={() => setFilterPanelOpen(false)}
+        tasks={tasks}
+        criteria={criteria}
+        onChange={setCriteria}
+      />
     </div>
   );
 }
+
+function ViewButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-bold ${
+        active
+          ? "bg-[var(--navy)] text-white"
+          : "border border-[var(--border)] bg-white dark:bg-slate-900"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+type FilterBadge = {
+  field: keyof FilterCriteria;
+  value?: string;
+  label: string;
+};
+
+function buildFilterBadges(criteria: FilterCriteria): FilterBadge[] {
+  const badges: FilterBadge[] = [];
+  (criteria.status ?? []).forEach((value) =>
+    badges.push({ field: "status", value, label: `Status: ${value}` }),
+  );
+  (criteria.priority ?? []).forEach((value) =>
+    badges.push({ field: "priority", value, label: `Prioridade: ${value}` }),
+  );
+  (criteria.assignee ?? []).forEach((value) =>
+    badges.push({ field: "assignee", value, label: `Responsável: ${value}` }),
+  );
+  (criteria.project ?? []).forEach((value) =>
+    badges.push({ field: "project", value, label: `Projeto: ${value}` }),
+  );
+  if (criteria.dueFrom) {
+    badges.push({
+      field: "dueFrom",
+      label: `De: ${new Date(criteria.dueFrom).toLocaleDateString("pt-BR")}`,
+    });
+  }
+  if (criteria.dueTo) {
+    badges.push({
+      field: "dueTo",
+      label: `Até: ${new Date(criteria.dueTo).toLocaleDateString("pt-BR")}`,
+    });
+  }
+  return badges;
+}
+
+export default TasksWorkspaceInner;
+// Backward-compat: outras páginas podem importar `{ TasksWorkspace }`
+export { TasksWorkspaceInner as TasksWorkspace };

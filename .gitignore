@@ -29,6 +29,7 @@ yarn-error.log*
 
 # OS
 .DS_Store
+._*
 Thumbs.db
 
 # TypeScript
@@ -48,3 +49,10 @@ next-env.d.ts
 # Local temp files
 temp/
 .env*.local
+
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+.env.test
+e2e/.env.test
