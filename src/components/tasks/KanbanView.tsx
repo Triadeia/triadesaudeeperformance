@@ -2,6 +2,10 @@
 
 import { useMemo, useState } from "react";
 import {
+  Pencil,
+  Trash2,
+} from "lucide-react";
+import {
   DndContext,
   KeyboardSensor,
   PointerSensor,
@@ -23,9 +27,13 @@ import {
 export function KanbanView({
   tasks,
   onMove,
+  onEdit,
+  onDelete,
 }: {
   tasks: Task[];
   onMove: (id: string, status: TaskStatus) => void;
+  onEdit: (task: Task) => void;
+  onDelete: (task: Task) => void;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -71,7 +79,14 @@ export function KanbanView({
     >
       <div className="grid auto-cols-[280px] grid-flow-col gap-4 overflow-x-auto pb-5">
         {TASK_STATUSES.map((status) => (
-          <Column key={status} status={status} tasks={grouped[status]} activeId={activeId} />
+          <Column
+            key={status}
+            status={status}
+            tasks={grouped[status]}
+            activeId={activeId}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
         ))}
       </div>
     </DndContext>
@@ -82,10 +97,14 @@ function Column({
   status,
   tasks,
   activeId,
+  onEdit,
+  onDelete,
 }: {
   status: TaskStatus;
   tasks: Task[];
   activeId: string | null;
+  onEdit: (task: Task) => void;
+  onDelete: (task: Task) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   return (
@@ -108,7 +127,13 @@ function Column({
           </p>
         ) : (
           tasks.map((task) => (
-            <DraggableCard key={task.id} task={task} dragging={activeId === task.id} />
+            <DraggableCard
+              key={task.id}
+              task={task}
+              dragging={activeId === task.id}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
           ))
         )}
       </div>
@@ -116,7 +141,17 @@ function Column({
   );
 }
 
-function DraggableCard({ task, dragging }: { task: Task; dragging: boolean }) {
+function DraggableCard({
+  task,
+  dragging,
+  onEdit,
+  onDelete,
+}: {
+  task: Task;
+  dragging: boolean;
+  onEdit: (task: Task) => void;
+  onDelete: (task: Task) => void;
+}) {
   const { setNodeRef, listeners, attributes, transform } = useDraggable({ id: task.id });
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
@@ -134,7 +169,35 @@ function DraggableCard({ task, dragging }: { task: Task; dragging: boolean }) {
       aria-label={`Tarefa ${task.title}`}
       tabIndex={0}
     >
-      <p className="text-sm font-bold leading-5">{task.title}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 flex-1 text-sm font-bold leading-5">{task.title}</p>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onEdit(task);
+            }}
+            aria-label={`Editar tarefa ${task.title}`}
+            className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete(task);
+            }}
+            aria-label={`Apagar tarefa ${task.title}`}
+            className="grid size-7 place-items-center rounded-md text-red-400 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
+      </div>
       <p className="mt-3 text-xs text-slate-500">
         {task.assignee ?? "Sem responsável"} · {task.due ? formatDueShort(task.due) : "Sem prazo"}
       </p>

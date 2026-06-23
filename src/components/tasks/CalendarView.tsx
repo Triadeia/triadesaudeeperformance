@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/page-parts";
 import { type Task } from "@/lib/tasks/schema";
 
@@ -50,9 +50,13 @@ function priorityTone(priority?: string): "red" | "amber" | "blue" | "slate" {
 export function CalendarView({
   tasks,
   onReschedule,
+  onEdit,
+  onDelete,
 }: {
   tasks: Task[];
   onReschedule: (id: string, dueIso: string) => void;
+  onEdit: (task: Task) => void;
+  onDelete: (task: Task) => void;
 }) {
   const today = new Date();
   const [cursor, setCursor] = useState(() => ({
@@ -233,7 +237,27 @@ export function CalendarView({
                     key={task.id}
                     className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
                   >
-                    <p className="text-sm font-bold leading-5">{task.title}</p>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 flex-1 text-sm font-bold leading-5">{task.title}</p>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onEdit(task)}
+                          aria-label={`Editar tarefa ${task.title}`}
+                          className="grid size-8 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"
+                        >
+                          <Pencil className="size-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDelete(task)}
+                          aria-label={`Apagar tarefa ${task.title}`}
+                          className="grid size-8 place-items-center rounded-lg text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      </div>
+                    </div>
                     <p className="mt-2 text-xs text-slate-500">
                       {task.assignee ?? "Sem responsável"} · {task.status}
                     </p>

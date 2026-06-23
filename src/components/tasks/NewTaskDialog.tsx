@@ -8,6 +8,7 @@ import {
   newTaskInputSchema,
   type NewTaskInput,
   type Priority,
+  type Task,
   type TaskStatus,
 } from "@/lib/tasks/schema";
 import { employees, projects } from "@/lib/data";
@@ -28,13 +29,15 @@ const INITIAL: NewTaskInput = {
 export function NewTaskDialog({
   open,
   onClose,
-  onCreate,
+  onSubmit,
+  initialTask,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreate: (input: NewTaskInput) => void;
+  onSubmit: (input: NewTaskInput) => void;
+  initialTask?: Task | null;
 }) {
-  const [draft, setDraft] = useState<NewTaskInput>(INITIAL);
+  const [draft, setDraft] = useState<NewTaskInput>(() => taskToInput(initialTask));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -113,7 +116,7 @@ export function NewTaskDialog({
       return;
     }
     try {
-      onCreate(parsed.data);
+      onSubmit(parsed.data);
       onClose();
     } catch (error) {
       setErrors({ title: error instanceof Error ? error.message : "Erro ao salvar" });
@@ -138,7 +141,7 @@ export function NewTaskDialog({
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-800">
           <h2 id="new-task-title" className="font-heading text-lg font-semibold">
-            Nova tarefa
+            {initialTask ? "Editar tarefa" : "Nova tarefa"}
           </h2>
           <button
             type="button"
@@ -273,13 +276,27 @@ export function NewTaskDialog({
               disabled={submitting}
               className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
             >
-              {submitting ? "Salvando..." : "Criar tarefa"}
+              {submitting ? "Salvando..." : initialTask ? "Salvar alterações" : "Criar tarefa"}
             </button>
           </div>
         </form>
       </div>
     </div>
   );
+}
+
+function taskToInput(task?: Task | null): NewTaskInput {
+  if (!task) return INITIAL;
+  return {
+    title: task.title,
+    description: task.description ?? "",
+    status: task.status,
+    assignee: task.assignee ?? "",
+    due: task.due ? task.due.slice(0, 10) : "",
+    project: task.project ?? "",
+    area: task.area ?? "",
+    priority: task.priority,
+  };
 }
 
 function Field({

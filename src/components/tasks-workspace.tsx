@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/page-parts";
 import { useTasksStore } from "@/hooks/useTasksStore";
-import { type FilterCriteria, type TaskStatus } from "@/lib/tasks/schema";
+import { type FilterCriteria, type NewTaskInput, type Task, type TaskStatus } from "@/lib/tasks/schema";
 import { applyParseResult, parseCommand } from "@/lib/tasks/parser";
 import { NewTaskDialog } from "@/components/tasks/NewTaskDialog";
 import { FilterPanel, criteriaToParams, paramsToCriteria } from "@/components/tasks/FilterPanel";
@@ -24,10 +24,11 @@ import { CalendarView } from "@/components/tasks/CalendarView";
 type ViewMode = "list" | "kanban" | "calendar";
 
 function TasksWorkspaceInner() {
-  const { tasks, hydrated, addTask, updateTask, filterTasks } = useTasksStore();
+  const { tasks, hydrated, addTask, updateTask, deleteTask, filterTasks } = useTasksStore();
   const [view, setView] = useState<ViewMode>("list");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogKey, setDialogKey] = useState(0);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [criteria, setCriteria] = useState<FilterCriteria>({});
   const [command, setCommand] = useState("");
@@ -75,16 +76,67 @@ function TasksWorkspaceInner() {
 
   const handleMoveStatus = useCallback(
     (id: string, status: TaskStatus) => {
-      updateTask(id, { status });
+      const updated = updateTask(id, { status });
+      if (updated) setResponse(`Status atualizado: "${updated.title}" agora está em ${status}.`);
     },
     [updateTask],
   );
 
   const handleReschedule = useCallback(
     (id: string, dueIso: string) => {
-      updateTask(id, { due: dueIso });
+      const updated = updateTask(id, { due: dueIso });
+      if (updated) {
+        setResponse(`Prazo atualizado: "${updated.title}" para ${new Date(dueIso).toLocaleDateString("pt-BR")}.`);
+      }
     },
     [updateTask],
+  );
+
+  const openCreateDialog = useCallback(() => {
+    setEditingTask(null);
+    setDialogKey((n) => n + 1);
+    setDialogOpen(true);
+  }, []);
+
+  const openEditDialog = useCallback((task: Task) => {
+    setEditingTask(task);
+    setDialogKey((n) => n + 1);
+    setDialogOpen(true);
+  }, []);
+
+  const handleDeleteTask = useCallback(
+    (task: Task) => {
+      const confirmed = window.confirm(`Apagar a tarefa "${task.title}"? Esta ação não pode ser desfeita.`);
+      if (!confirmed) return;
+      if (deleteTask(task.id)) {
+        setResponse(`Tarefa apagada: "${task.title}".`);
+      } else {
+        setResponse("Não consegui encontrar essa tarefa para apagar.");
+      }
+    },
+    [deleteTask],
+  );
+
+  const handleSubmitTask = useCallback(
+    (input: NewTaskInput) => {
+      if (editingTask) {
+        const updated = updateTask(editingTask.id, {
+          title: input.title,
+          description: input.description || undefined,
+          status: input.status,
+          assignee: input.assignee || undefined,
+          due: input.due || undefined,
+          project: input.project || undefined,
+          area: input.area || undefined,
+          priority: input.priority,
+        });
+        if (updated) setResponse(`Tarefa atualizada: "${updated.title}".`);
+        return;
+      }
+      const created = addTask(input);
+      setResponse(`Tarefa criada: "${created.title}".`);
+    },
+    [addTask, editingTask, updateTask],
   );
 
   function runCommand() {
@@ -113,6 +165,20 @@ function TasksWorkspaceInner() {
       if (applied.affected) {
         updateTask(applied.affected.id, { status: parsed.data.status });
         setResponse(`${parsed.response} → "${applied.affected.title}".`);
+      } else {
+        setResponse(applied.response);
+      }
+      return;
+    }
+    if (parsed.intent === "delete") {
+      const applied = applyParseResult(parsed, tasks);
+      if (applied.affected) {
+        if (window.confirm(`Apagar a tarefa "${applied.affected.title}"?`)) {
+          deleteTask(applied.affected.id);
+          setResponse(`Tarefa apagada: "${applied.affected.title}".`);
+        } else {
+          setResponse("Exclusão cancelada.");
+        }
       } else {
         setResponse(applied.response);
       }
@@ -189,6 +255,17 @@ function TasksWorkspaceInner() {
         <ViewButton active={view === "list"} onClick={() => setView("list")} icon={<List className="size-4" />} label="Lista" />
         <ViewButton active={view === "kanban"} onClick={() => setView("kanban")} icon={<KanbanSquare className="size-4" />} label="Kanban" />
         <ViewButton active={view === "calendar"} onClick={() => setView("calendar")} icon={<CalendarDays className="size-4" />} label="Calendário" />
+        <label className="min-w-[220px] flex-1 sm:max-w-xs">
+          <span className="sr-only">Buscar tarefas</span>
+          <input
+            value={criteria.search ?? ""}
+            onChange={(event) =>
+              setCriteria((current) => ({ ...current, search: event.target.value || undefined }))
+            }
+            className="h-10 w-full rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-semibold outline-none placeholder:text-slate-400 focus:border-emerald-500 dark:bg-slate-900"
+            placeholder="Buscar tarefa, pessoa ou projeto"
+          />
+        </label>
         <button
           type="button"
           onClick={() => setFilterPanelOpen(true)}
@@ -199,8 +276,8 @@ function TasksWorkspaceInner() {
         </button>
         <button
           type="button"
-          onClick={() => { setDialogKey((n) => n + 1); setDialogOpen(true); }}
-          className="ml-auto flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white hover:bg-emerald-700"
+          onClick={openCreateDialog}
+          className="flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white hover:bg-emerald-700 sm:ml-auto"
         >
           <Plus className="size-4" />
           Nova tarefa
@@ -238,18 +315,37 @@ function TasksWorkspaceInner() {
       </div>
 
       {view === "list" ? (
-        <TaskList tasks={filteredTasks} />
+        <TaskList
+          tasks={filteredTasks}
+          onEdit={openEditDialog}
+          onDelete={handleDeleteTask}
+          onStatusChange={handleMoveStatus}
+        />
       ) : view === "kanban" ? (
-        <KanbanView tasks={filteredTasks} onMove={handleMoveStatus} />
+        <KanbanView
+          tasks={filteredTasks}
+          onMove={handleMoveStatus}
+          onEdit={openEditDialog}
+          onDelete={handleDeleteTask}
+        />
       ) : (
-        <CalendarView tasks={filteredTasks} onReschedule={handleReschedule} />
+        <CalendarView
+          tasks={filteredTasks}
+          onReschedule={handleReschedule}
+          onEdit={openEditDialog}
+          onDelete={handleDeleteTask}
+        />
       )}
 
       <NewTaskDialog
         key={dialogKey}
         open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        onCreate={(input) => addTask(input)}
+        initialTask={editingTask}
+        onClose={() => {
+          setDialogOpen(false);
+          setEditingTask(null);
+        }}
+        onSubmit={handleSubmitTask}
       />
 
       <FilterPanel
@@ -321,6 +417,9 @@ function buildFilterBadges(criteria: FilterCriteria): FilterBadge[] {
       field: "dueTo",
       label: `Até: ${new Date(criteria.dueTo).toLocaleDateString("pt-BR")}`,
     });
+  }
+  if (criteria.search) {
+    badges.push({ field: "search", label: `Busca: ${criteria.search}` });
   }
   return badges;
 }

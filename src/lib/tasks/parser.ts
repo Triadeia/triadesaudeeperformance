@@ -7,10 +7,11 @@ import {
   type TaskStatus,
 } from "./schema";
 
-export type Intent = "create" | "filter" | "summarize" | "status-change" | "unknown";
+export type Intent = "create" | "delete" | "filter" | "summarize" | "status-change" | "unknown";
 
 export type ParseResult =
   | { intent: "create"; data: CreateData; response: string }
+  | { intent: "delete"; data: TargetData; response: string }
   | { intent: "filter"; data: FilterCriteria; response: string }
   | { intent: "summarize"; data: Record<string, never>; response: string }
   | { intent: "status-change"; data: StatusChangeData; response: string }
@@ -28,6 +29,11 @@ export type StatusChangeData = {
   index?: number;
   title?: string;
   status: TaskStatus;
+};
+
+export type TargetData = {
+  index?: number;
+  title?: string;
 };
 
 // Mapeamento de palavras-chave em PT-BR para status
@@ -250,6 +256,16 @@ function parseFilter(input: string): ParseResult {
 
 function parseStatusChange(input: string): ParseResult {
   const status = extractStatus(input) ?? "Concluída";
+  const { index, title } = parseTarget(input);
+
+  return {
+    intent: "status-change",
+    data: { status, index, title },
+    response: `Atualização de status para ${status} preparada.`,
+  };
+}
+
+function parseTarget(input: string): TargetData {
   const indexMatch = input.match(/\b(?:primeira|segunda|terceira|quarta|quinta|sexta)\b/i);
   const ordinalMap: Record<string, number> = {
     primeira: 0,
@@ -261,12 +277,24 @@ function parseStatusChange(input: string): ParseResult {
   };
   const index = indexMatch ? ordinalMap[indexMatch[0].toLowerCase()] : undefined;
   const titleMatch = input.match(/"([^"]+)"|'([^']+)'/);
-  const title = titleMatch ? titleMatch[1] ?? titleMatch[2] : undefined;
+  const quotedTitle = titleMatch ? titleMatch[1] ?? titleMatch[2] : undefined;
+  if (quotedTitle) return { index, title: quotedTitle };
 
+  const title = input
+    .replace(/^\s*(apague|apagar|delete|deletar|exclua|excluir|remova|remover)\s+/i, "")
+    .replace(/^\s*(a\s+|o\s+)?(tarefa|task)\s*/i, "")
+    .replace(/\b(?:primeira|segunda|terceira|quarta|quinta|sexta)\b/gi, "")
+    .trim()
+    .replace(/^[,.;:-]+|[,.;:-]+$/g, "")
+    .trim();
+  return { index, title: title || undefined };
+}
+
+function parseDelete(input: string): ParseResult {
   return {
-    intent: "status-change",
-    data: { status, index, title },
-    response: `Atualização de status para ${status} preparada.`,
+    intent: "delete",
+    data: parseTarget(input),
+    response: "Exclusão preparada.",
   };
 }
 
@@ -292,6 +320,10 @@ export function parseCommand(input: string): ParseResult {
 
   if (/^(marque|marcar|mude|mudar|altere|alterar|atualize|atualizar|defina|definir|conclua|concluir)\b/.test(lower)) {
     return parseStatusChange(text);
+  }
+
+  if (/^(apague|apagar|delete|deletar|exclua|excluir|remova|remover)\b/.test(lower)) {
+    return parseDelete(text);
   }
 
   if (/^(resuma|resumir|resumo|sumarize|sumariz)/.test(lower)) {
@@ -328,16 +360,19 @@ export function applyParseResult(result: ParseResult, tasks: Task[]): {
   if (result.intent === "filter") {
     return { tasks, filter: result.data, response: result.response };
   }
+  if (result.intent === "delete") {
+    const affected = pickTargetTask(result.data, tasks);
+    if (affected) {
+      return { tasks, affected, response: result.response };
+    }
+    return { tasks, response: "Tarefa alvo não encontrada para exclusão." };
+  }
   if (result.intent === "status-change") {
-    const targetIndex = result.data.index ?? -1;
-    const targetByTitle = result.data.title
-      ? tasks.findIndex((task) => task.title.toLowerCase().includes(result.data.title!.toLowerCase()))
-      : -1;
-    const pickedIndex = targetIndex >= 0 ? targetIndex : targetByTitle;
-    if (pickedIndex >= 0 && pickedIndex < tasks.length) {
+    const affected = pickTargetTask(result.data, tasks);
+    if (affected) {
       return {
         tasks,
-        affected: tasks[pickedIndex],
+        affected,
         response: result.response,
       };
     }
@@ -360,4 +395,14 @@ export function applyParseResult(result: ParseResult, tasks: Task[]): {
     return { tasks, response: summary };
   }
   return { tasks, response: result.response };
+}
+
+function pickTargetTask(target: TargetData, tasks: Task[]): Task | undefined {
+  const targetIndex = target.index ?? -1;
+  const targetByTitle = target.title
+    ? tasks.findIndex((task) => task.title.toLowerCase().includes(target.title!.toLowerCase()))
+    : -1;
+  const pickedIndex = targetIndex >= 0 ? targetIndex : targetByTitle;
+  if (pickedIndex >= 0 && pickedIndex < tasks.length) return tasks[pickedIndex];
+  return undefined;
 }

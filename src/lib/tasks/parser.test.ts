@@ -42,6 +42,20 @@ test("status-change reconhece ordinal e status alvo", () => {
   assert.equal(result.data.status, "Concluída");
 });
 
+test("delete intent reconhece ordinal", () => {
+  const result = parseCommand("Apague a primeira tarefa");
+  assert.equal(result.intent, "delete");
+  if (result.intent !== "delete") return;
+  assert.equal(result.data.index, 0);
+});
+
+test("delete intent reconhece título entre aspas", () => {
+  const result = parseCommand('Exclua a tarefa "Revisar funil"');
+  assert.equal(result.intent, "delete");
+  if (result.intent !== "delete") return;
+  assert.equal(result.data.title, "Revisar funil");
+});
+
 test("summarize intent é reconhecido", () => {
   const result = parseCommand("Resumir tarefas");
   assert.equal(result.intent, "summarize");
