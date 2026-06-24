@@ -278,7 +278,7 @@ export function TasksWorkspace() {
           tasks={filteredTasks as any}
           onTaskUpdate={(id, updates) => setTasks((current) => updateTask(current, id, updates as any))}
           onTaskDelete={removeTask}
-          onBulkUpdate={(ids, updates) => setTasks((current) => current.map((t) => (ids.includes(t.id) ? { ...t, ...updates } : t)))}
+          onBulkUpdate={(ids, updates) => setTasks((current) => current.map((t) => (ids.includes(t.id) ? { ...t, ...updates } as any : t)) as any)}
           onTaskReorder={(orderedIds) => setTasks((current) => {
             const map = new Map(current.map((t) => [t.id, t]));
             return orderedIds.map((id, idx) => {

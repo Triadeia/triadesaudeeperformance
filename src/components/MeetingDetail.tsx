@@ -101,7 +101,7 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
               <div key={i} className="border-l-4 border-emerald-500 pl-4 py-2">
                 <p className="font-semibold text-slate-900">{d.title}</p>
                 <p className="text-sm text-slate-600 mt-1">{d.description}</p>
-                <Badge tone="green" className="mt-2">Aberta</Badge>
+                <div className="mt-2"><Badge tone="green">Aberta</Badge></div>
               </div>
             ))
           )}

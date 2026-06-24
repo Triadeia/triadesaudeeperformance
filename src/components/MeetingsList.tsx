@@ -48,7 +48,6 @@ export function MeetingsList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [view, setView] = useState<"table" | "cards">("table");
-  const [showDialog, setShowDialog] = useState(false);
 
   useEffect(() => {
     if (storageRevision === 0) notifyStorageChange();
@@ -92,20 +91,21 @@ export function MeetingsList() {
   if (meetings.length === 0 && !isLoading)
     return (
       <div>
-        <PageHeader eyebrow="Memória da empresa" title="Reuniões" description="Centralize transcrições, decisões e planos de ação." action={<button onClick={() => setShowDialog(true)} className="flex h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white hover:bg-emerald-700">+ Nova reunião</button>} />
+        <PageHeader eyebrow="Memória da empresa" title="Reuniões" description="Centralize transcrições, decisões e planos de ação." />
         <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 py-16 text-center">
           <div className="mb-4 text-4xl">🎙️</div>
           <h3 className="mb-2 text-lg font-bold text-slate-700">Nenhuma reunião registrada.</h3>
           <p className="mb-6 text-slate-600">Capture a primeira para que a Triade comece a aprender com seu time.</p>
-          <button onClick={() => setShowDialog(true)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white hover:bg-emerald-700">+ Criar primeira reunião</button>
         </div>
-        <NewMeetingDialog open={showDialog} onClose={() => setShowDialog(false)} />
+        <div className="mt-6 flex justify-center">
+          <NewMeetingDialog />
+        </div>
       </div>
     );
 
   return (
     <div>
-      <PageHeader eyebrow="Memória da empresa" title="Reuniões" description="Centralize transcrições, decisões e planos de ação." action={<button onClick={() => setShowDialog(true)} className="flex h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white hover:bg-emerald-700">+ Nova reunião</button>} />
+      <PageHeader eyebrow="Memória da empresa" title="Reuniões" description="Centralize transcrições, decisões e planos de ação." />
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[250px]">
           <Search className="absolute left-3 top-3 size-4 text-slate-400" />
@@ -163,13 +163,13 @@ export function MeetingsList() {
                   <div className="flex items-center gap-1"><Users className="size-4" /> {m.meeting_participants?.length || 0}</div>
                   <div className="flex items-center gap-1"><CalendarDays className="size-4" /> {formatDate(m.starts_at)}</div>
                 </div>
-                <div className="mt-3 flex gap-2">{(m.tags || []).slice(0, 2).map((t) => <Badge key={t} tone="slate" className="text-xs">{t}</Badge>)}</div>
+                <div className="mt-3 flex gap-2">{(m.tags || []).slice(0, 2).map((t) => <span key={t} className="text-xs"><Badge tone="slate">{t}</Badge></span>)}</div>
               </Link>
             );
           })}
         </div>
       )}
-      <NewMeetingDialog open={showDialog} onClose={() => setShowDialog(false)} />
+      <NewMeetingDialog />
     </div>
   );
 }
