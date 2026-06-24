@@ -9,7 +9,6 @@ import {
   CircleUserRound,
   Component,
   Dumbbell,
-  FolderKanban,
   Gauge,
   ListTodo,
   LogOut,
@@ -33,7 +32,6 @@ const navigation = [
       { href: "/app/dashboard", label: "Visão geral", icon: Gauge },
       { href: "/app/reunioes", label: "Reuniões", icon: CalendarDays },
       { href: "/app/tarefas", label: "Tarefas", icon: ListTodo },
-      { href: "/app/projetos", label: "Ciclos & Programas", icon: FolderKanban },
     ],
   },
   {

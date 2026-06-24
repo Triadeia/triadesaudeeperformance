@@ -1,11 +1,7 @@
-import { notFound } from "next/navigation";
-import { MeetingWorkspace } from "@/components/meeting-workspace";
-import { getMeetings } from "@/lib/repositories";
+"use client";
 
-export default async function MeetingPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const meetings = await getMeetings();
-  const meeting = meetings.find((item) => item.id === id);
-  if (!meeting) notFound();
-  return <MeetingWorkspace meeting={meeting} />;
+import { MeetingDetail } from "@/components/MeetingDetail";
+
+export default function MeetingPage({ params }: { params: { id: string } }) {
+  return <MeetingDetail meetingId={params.id} />;
 }
