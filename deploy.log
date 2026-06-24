@@ -1,0 +1,361 @@
+<claude-code-hint v="1" type="plugin" value="vercel@claude-plugins-official" />
+Vercel CLI 54.16.0 (Node.js 22.14.0)
+
+  Directory       ~/codex-work/refs-triadesaude
+
+Loading teams…
+Searching for existing projects…
+  Local settings detected in vercel.json:
+  Framework: nextjs
+  Merging default Project Settings for Next.js. Previously listed overrides are prioritized.
+
+  Detected Next.js (Build Command: next build, Output Directory: Next.js default)
+
+✓ Created         triadecompanyio-gmailcoms-projects/refs-triadesaude
+
+> Connecting GitHub repository: https://github.com/Triadeia/triadesaudeeperformance
+> Connected
+Deploying triadecompanyio-gmailcoms-projects/refs-triadesaude
+Uploading [--------------------] (0.0B/629.2KB)
+Uploading [=====---------------] (159.0KB/629.2KB)
+Uploading [==========----------] (320.1KB/629.2KB)
+Uploading [===============-----] (472.0KB/629.2KB)
+Uploading [====================] (629.2KB/629.2KB)
+  Inspect         https://vercel.com/triadecompanyio-gmailcoms-projects/refs-triadesaude/AuAFCgABCLbs6XJbKuL5aiQLLrGd
+  Production      https://refs-triadesaude-6ivv94znt-triadecompanyio-gmailcoms-projects.vercel.app
+Building…
+Building…
+Running build in Washington, D.C., USA (East) – iad1
+Build machine configuration: 2 cores, 8 GB
+Retrieving list of deployment files...
+Previous build caches not available.
+Downloading 317 deployment files...
+Running "vercel build"
+Vercel CLI 54.14.0
+Warning: Detected "engines": { "node": ">=24" } in your `package.json` that will automatically upgrade when a new major Node.js Version is released. Learn More: https://vercel.link/node-version
+Installing dependencies...
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+added 655 packages in 16s
+236 packages are looking for funding
+run `npm fund` for details
+Detected Next.js version: 16.2.1
+Running "npm run build"
+> triade-saude-performance-painel@1.0.0 build
+> next build
+Applying modifyConfig from Vercel
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+▲ Next.js 16.2.1 (Turbopack)
+Creating an optimized production build ...
+> Build error occurred
+Error: Turbopack build failed with 28 errors:
+./src/app/api/google/files/route.ts:91:1
+Expected '}', got '<eof>'
+89 |   }
+90 | }
+> 91 |
+| ^
+Parsing ecmascript source code failed
+./src/app/api/google/files/route.ts:3:1
+Merge conflict marker encountered.
+1 | import { NextResponse } from "next/server";
+2 | import { getSession } from "@/lib/auth";
+> 3 | <<<<<<< HEAD
+| ^^^^^^^
+4 | import { getValidAccessToken, listDriveFiles } from "@/lib/google/integration";
+5 | import { isGoogleConfigured } from "@/lib/google/oauth";
+6 | =======
+Parsing ecmascript source code failed
+./src/app/api/google/files/route.ts:6:1
+Merge conflict marker encountered.
+4 | import { getValidAccessToken, listDriveFiles } from "@/lib/google/integration";
+5 | import { isGoogleConfigured } from "@/lib/google/oauth";
+> 6 | =======
+| ^^^^^^^
+7 | import { getValidAccessToken } from "@/lib/google/integration";
+8 |
+9 | type DriveFile = {
+Parsing ecmascript source code failed
+./src/app/api/google/files/route.ts:18:1
+Merge conflict marker encountered.
+16 |   iconLink?: string;
+17 | };
+> 18 | >>>>>>> 59b2649fbc9d8fc283a5fdc1aa06150c2b0912d8
+| ^^^^^^^
+19 |
+20 | export async function GET(request: Request) {
+21 |   const session = await getSession();
+Parsing ecmascript source code failed
+./src/app/api/google/files/route.ts:23:1
+Merge conflict marker encountered.
+21 |   const session = await getSession();
+22 |   if (!session) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+> 23 | <<<<<<< HEAD
+| ^^^^^^^
+24 |   if (!isGoogleConfigured()) {
+25 |     return NextResponse.json({ error: "Google OAuth não configurado." }, { status: 503 });
+26 |   }
+Parsing ecmascript source code failed
+./src/app/api/google/files/route.ts:52:1
+Merge conflict marker encountered.
+50 |     const status = message.includes("não conectada") ? 412 : 502;
+51 |     return NextResponse.json({ error: message }, { status });
+> 52 | =======
+| ^^^^^^^
+53 |
+54 |   const accessToken = await getValidAccessToken(session.id);
+55 |   if (!accessToken) {
+Parsing ecmascript source code failed
+./src/app/api/google/files/route.ts:88:1
+Merge conflict marker encountered.
+86 |     const message = error instanceof Error ? error.message : "Falha ao listar arquivos";
+87 |     return NextResponse.json({ error: message }, { status: 500 });
+> 88 | >>>>>>> 59b2649fbc9d8fc283a5fdc1aa06150c2b0912d8
+| ^^^^^^^
+89 |   }
+90 | }
+91 |
+Parsing ecmascript source code failed
+./src/app/api/google/oauth/callback/route.ts:2:1
+Merge conflict marker encountered.
+1 | import { NextResponse } from "next/server";
+> 2 | <<<<<<< HEAD
+| ^^^^^^^
+3 | import { getSession } from "@/lib/auth";
+4 | import { exchangeCodeForTokens, isGoogleConfigured } from "@/lib/google/oauth";
+5 | import { consumeOAuthState, disconnectGoogle, persistGoogleTokens } from "@/lib/google/inte...
+Parsing ecmascript source code failed
+./src/app/api/google/oauth/callback/route.ts:106:1
+Merge conflict marker encountered.
+104 |       { status: 500 },
+105 |     );
+> 106 | =======
+| ^^^^^^^
+107 | import { cookies } from "next/headers";
+108 | import { getSession } from "@/lib/auth";
+109 | import { exchangeCodeForTokens } from "@/lib/google/oauth";
+Parsing ecmascript source code failed
+./src/app/api/google/oauth/start/route.ts:2:1
+Merge conflict marker encountered.
+1 | import { NextResponse } from "next/server";
+> 2 | <<<<<<< HEAD
+| ^^^^^^^
+3 | import { getSession } from "@/lib/auth";
+4 | import { generateOAuthState, getAuthorizationUrl, isGoogleConfigured } from "@/lib/google/o...
+5 | import { storeOAuthState } from "@/lib/google/integration";
+Parsing ecmascript source code failed
+./src/app/api/google/oauth/start/route.ts:28:1
+Merge conflict marker encountered.
+26 |   }
+27 |   return NextResponse.redirect(target);
+> 28 | =======
+| ^^^^^^^
+29 | import { randomBytes } from "node:crypto";
+30 | import { cookies } from "next/headers";
+31 | import { getSession } from "@/lib/auth";
+Parsing ecmascript source code failed
+./src/app/api/google/status/route.ts:3:1
+Merge conflict marker encountered.
+1 | import { NextResponse } from "next/server";
+2 | import { getSession } from "@/lib/auth";
+> 3 | <<<<<<< HEAD
+| ^^^^^^^
+4 | import { describeGoogleStatus } from "@/lib/google/integration";
+5 | import { isGoogleConfigured } from "@/lib/google/oauth";
+6 | =======
+Parsing ecmascript source code failed
+./src/app/api/google/status/route.ts:6:1
+Merge conflict marker encountered.
+4 | import { describeGoogleStatus } from "@/lib/google/integration";
+5 | import { isGoogleConfigured } from "@/lib/google/oauth";
+> 6 | =======
+| ^^^^^^^
+7 | import { getGoogleIntegration } from "@/lib/google/integration";
+8 | >>>>>>> 59b2649fbc9d8fc283a5fdc1aa06150c2b0912d8
+9 |
+Parsing ecmascript source code failed
+./src/app/api/google/status/route.ts:8:1
+Merge conflict marker encountered.
+6 | =======
+7 | import { getGoogleIntegration } from "@/lib/google/integration";
+>  8 | >>>>>>> 59b2649fbc9d8fc283a5fdc1aa06150c2b0912d8
+| ^^^^^^^
+9 |
+10 | export async function GET() {
+11 |   const session = await getSession();
+Parsing ecmascript source code failed
+./src/app/api/google/status/route.ts:14:1
+Merge conflict marker encountered.
+12 |   if (!session) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+13 |
+> 14 | <<<<<<< HEAD
+| ^^^^^^^
+15 |   if (!isGoogleConfigured()) {
+16 |     return NextResponse.json({
+17 |       configured: false,
+Parsing ecmascript source code failed
+./src/app/api/google/status/route.ts:39:1
+Merge conflict marker encountered.
+37 |       { status: 500 },
+38 |     );
+> 39 | =======
+| ^^^^^^^
+40 |   try {
+41 |     const record = await getGoogleIntegration(session.id);
+42 |     if (!record) return NextResponse.json({ connected: false });
+Parsing ecmascript source code failed
+./src/app/api/reunioes/[id]/upload/route.ts:1:1
+Merge conflict marker encountered.
+> 1 | <<<<<<< HEAD
+| ^^^^^^^
+2 | import { createHash, randomUUID } from "node:crypto";
+3 | import { NextResponse } from "next/server";
+4 | import { getSession } from "@/lib/auth";
+Parsing ecmascript source code failed
+./src/app/api/reunioes/[id]/upload/route.ts:162:1
+Merge conflict marker encountered.
+160 |     checksum: createHash("sha256").update(buffer).digest("hex"),
+161 |   });
+> 162 | =======
+| ^^^^^^^
+163 | import { NextResponse } from "next/server";
+164 | import { getSession } from "@/lib/auth";
+165 | import { createAdminClient } from "@/lib/supabase/admin";
+Parsing ecmascript source code failed
+./src/app/app/reunioes/[id]/page.tsx:1:1
+Merge conflict marker encountered.
+> 1 | <<<<<<< HEAD
+| ^^^^^^^
+2 | "use client";
+3 |
+4 | import { MeetingDetail } from "@/components/MeetingDetail";
+Parsing ecmascript source code failed
+./src/app/app/reunioes/[id]/page.tsx:8:1
+Merge conflict marker encountered.
+6 | export default function MeetingPage({ params }: { params: { id: string } }) {
+7 |   return <MeetingDetail meetingId={params.id} />;
+>  8 | =======
+| ^^^^^^^
+9 | import { notFound } from "next/navigation";
+10 | import { MeetingDetail } from "@/components/MeetingDetail";
+11 | import { getMeetings } from "@/lib/repositories";
+Parsing ecmascript source code failed
+./src/app/app/reunioes/page.tsx:1:1
+Merge conflict marker encountered.
+> 1 | <<<<<<< HEAD
+| ^^^^^^^
+2 | import { MeetingsList } from "@/components/MeetingsList";
+3 |
+4 | export default function MeetingsPage() {
+Parsing ecmascript source code failed
+./src/app/app/reunioes/page.tsx:6:1
+Merge conflict marker encountered.
+4 | export default function MeetingsPage() {
+5 |   return <MeetingsList />;
+> 6 | =======
+| ^^^^^^^
+7 | import { getMeetings } from "@/lib/repositories";
+8 | import { PageHeader } from "@/components/page-parts";
+9 | import { MeetingsList } from "@/components/MeetingsList";
+Parsing ecmascript source code failed
+./src/app/app/tarefas/page.tsx:1:1
+Merge conflict marker encountered.
+> 1 | <<<<<<< HEAD
+| ^^^^^^^
+2 | import { PageHeader } from "@/components/page-parts";
+3 | import { TasksWorkspace } from "@/components/tasks-workspace";
+4 |
+Parsing ecmascript source code failed
+./src/app/app/tarefas/page.tsx:11:1
+Merge conflict marker encountered.
+9 |  * (com fallback do seed em `src/lib/data.ts`). Sem chamadas a Supabase ou a `/api/tasks/*`.
+10 |  */
+> 11 | =======
+| ^^^^^^^
+12 | "use client";
+13 |
+14 | import { PageHeader } from "@/components/page-parts";
+Parsing ecmascript source code failed
+./src/app/app/tarefas/page.tsx:17:1
+Merge conflict marker encountered.
+15 | import TasksWorkspace from "@/components/tasks-workspace";
+16 |
+> 17 | >>>>>>> 59b2649fbc9d8fc283a5fdc1aa06150c2b0912d8
+| ^^^^^^^
+18 | export default function TasksPage() {
+19 |   return (
+20 |     <div>
+Parsing ecmascript source code failed
+./src/app/app/tarefas/page.tsx:24:1
+Merge conflict marker encountered.
+22 |         eyebrow="Execução conectada"
+23 |         title="Tarefas"
+> 24 | <<<<<<< HEAD
+| ^^^^^^^
+25 |         description="Planeje, priorize e transforme decisões em trabalho rastreável."
+26 | =======
+27 |         description="Planeje, priorize e transforme decisões em trabalho rastreável. Tudo ...
+Parsing ecmascript source code failed
+./src/app/app/tarefas/page.tsx:26:1
+Merge conflict marker encountered.
+24 | <<<<<<< HEAD
+25 |         description="Planeje, priorize e transforme decisões em trabalho rastreável."
+> 26 | =======
+| ^^^^^^^
+27 |         description="Planeje, priorize e transforme decisões em trabalho rastreável. Tudo ...
+28 | >>>>>>> 59b2649fbc9d8fc283a5fdc1aa06150c2b0912d8
+29 |       />
+Parsing ecmascript source code failed
+./src/app/app/tarefas/page.tsx:28:1
+Merge conflict marker encountered.
+26 | =======
+27 |         description="Planeje, priorize e transforme decisões em trabalho rastreável. Tudo ...
+> 28 | >>>>>>> 59b2649fbc9d8fc283a5fdc1aa06150c2b0912d8
+| ^^^^^^^
+29 |       />
+30 |       <TasksWorkspace />
+31 |     </div>
+Parsing ecmascript source code failed
+at <unknown> (./src/app/api/google/files/route.ts:91:1)
+at <unknown> (./src/app/api/google/files/route.ts:3:1)
+at <unknown> (./src/app/api/google/files/route.ts:6:1)
+at <unknown> (./src/app/api/google/files/route.ts:18:1)
+at <unknown> (./src/app/api/google/files/route.ts:23:1)
+at <unknown> (./src/app/api/google/files/route.ts:52:1)
+at <unknown> (./src/app/api/google/files/route.ts:88:1)
+at <unknown> (./src/app/api/google/oauth/callback/route.ts:2:1)
+at <unknown> (./src/app/api/google/oauth/callback/route.ts:106:1)
+at <unknown> (./src/app/api/google/oauth/start/route.ts:2:1)
+at <unknown> (./src/app/api/google/oauth/start/route.ts:28:1)
+at <unknown> (./src/app/api/google/status/route.ts:3:1)
+at <unknown> (./src/app/api/google/status/route.ts:6:1)
+at <unknown> (./src/app/api/google/status/route.ts:8:1)
+at <unknown> (./src/app/api/google/status/route.ts:14:1)
+at <unknown> (./src/app/api/google/status/route.ts:39:1)
+at <unknown> (./src/app/api/reunioes/[id]/upload/route.ts:1:1)
+at <unknown> (./src/app/api/reunioes/[id]/upload/route.ts:162:1)
+at <unknown> (./src/app/app/reunioes/[id]/page.tsx:1:1)
+at <unknown> (./src/app/app/reunioes/[id]/page.tsx:8:1)
+at <unknown> (./src/app/app/reunioes/page.tsx:1:1)
+at <unknown> (./src/app/app/reunioes/page.tsx:6:1)
+at <unknown> (./src/app/app/tarefas/page.tsx:1:1)
+at <unknown> (./src/app/app/tarefas/page.tsx:11:1)
+at <unknown> (./src/app/app/tarefas/page.tsx:17:1)
+at <unknown> (./src/app/app/tarefas/page.tsx:24:1)
+at <unknown> (./src/app/app/tarefas/page.tsx:26:1)
+at <unknown> (./src/app/app/tarefas/page.tsx:28:1)
+Error: Command "npm run build" exited with 1
+{
+  "id": "dpl_AuAFCgABCLbs6XJbKuL5aiQLLrGd",
+  "url": "https://refs-triadesaude-6ivv94znt-triadecompanyio-gmailcoms-projects.vercel.app",
+  "inspectorUrl": "https://vercel.com/triadecompanyio-gmailcoms-projects/refs-triadesaude/AuAFCgABCLbs6XJbKuL5aiQLLrGd",
+  "readyState": "ERROR",
+  "target": "production",
+  "deploymentApiUrl": "https://api.vercel.com/v13/deployments/dpl_AuAFCgABCLbs6XJbKuL5aiQLLrGd",
+  "error": {
+    "name": "BUILD_ERROR",
+    "message": "Command \"npm run build\" exited with 1"
+  }
+}
