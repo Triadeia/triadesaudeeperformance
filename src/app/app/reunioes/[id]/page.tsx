@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 "use client";
 
 import { MeetingDetail } from "@/components/MeetingDetail";

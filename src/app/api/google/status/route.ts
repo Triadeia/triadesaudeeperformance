@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-<<<<<<< HEAD
 import { describeGoogleStatus } from "@/lib/google/integration";
 import { isGoogleConfigured } from "@/lib/google/oauth";
 =======
@@ -11,7 +10,6 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
-<<<<<<< HEAD
   if (!isGoogleConfigured()) {
     return NextResponse.json({
       configured: false,

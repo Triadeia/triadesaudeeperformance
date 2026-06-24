@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { PageHeader } from "@/components/page-parts";
 import { TasksWorkspace } from "@/components/tasks-workspace";
 
@@ -21,7 +20,6 @@ export default function TasksPage() {
       <PageHeader
         eyebrow="Execução conectada"
         title="Tarefas"
-<<<<<<< HEAD
         description="Planeje, priorize e transforme decisões em trabalho rastreável."
 =======
         description="Planeje, priorize e transforme decisões em trabalho rastreável. Tudo local — seus dados ficam no navegador."

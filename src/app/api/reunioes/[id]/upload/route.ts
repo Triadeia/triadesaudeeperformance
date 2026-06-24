@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";

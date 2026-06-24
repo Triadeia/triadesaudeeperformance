@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-<<<<<<< HEAD
 import { getSession } from "@/lib/auth";
 import { generateOAuthState, getAuthorizationUrl, isGoogleConfigured } from "@/lib/google/oauth";
 import { storeOAuthState } from "@/lib/google/integration";
