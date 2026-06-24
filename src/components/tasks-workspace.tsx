@@ -22,8 +22,10 @@ import { NewTaskDialog } from "@/components/NewTaskDialog";
 import { FilterPanel } from "@/components/FilterPanel";
 import { KanbanView } from "@/components/KanbanView";
 import { CalendarView } from "@/components/CalendarView";
+import TableView from "@/components/TableView";
+import GanttView from "@/components/GanttView";
 
-type ViewMode = "list" | "kanban" | "calendar";
+type ViewMode = "list" | "kanban" | "calendar" | "table" | "gantt";
 
 // Sinal global para `useSyncExternalStore` — incrementa a cada gravação local.
 let storageRevision = 0;
@@ -215,6 +217,24 @@ export function TasksWorkspace() {
           Calendário
         </button>
         <button
+          onClick={() => setView("table")}
+          type="button"
+          className={`flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-bold ${
+            view === "table" ? "bg-[var(--navy)] text-white" : "border border-[var(--border)] bg-white"
+          }`}
+        >
+          Tabela
+        </button>
+        <button
+          onClick={() => setView("gantt")}
+          type="button"
+          className={`flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-bold ${
+            view === "gantt" ? "bg-[var(--navy)] text-white" : "border border-[var(--border)] bg-white"
+          }`}
+        >
+          Gantt
+        </button>
+        <button
           onClick={() => setShowFilters((open) => !open)}
           type="button"
           className={`flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-bold ${
@@ -251,9 +271,30 @@ export function TasksWorkspace() {
         <ListView tasks={filteredTasks} onDelete={removeTask} onStatusChange={changeStatus} />
       ) : view === "kanban" ? (
         <KanbanView tasks={filteredTasks} onStatusChange={changeStatus} />
-      ) : (
+      ) : view === "calendar" ? (
         <CalendarView tasks={filteredTasks} onDueDateChange={changeDueDate} />
-      )}
+      ) : view === "table" ? (
+        <TableView
+          tasks={filteredTasks as any}
+          onTaskUpdate={(id, updates) => setTasks((current) => updateTask(current, id, updates as any))}
+          onTaskDelete={removeTask}
+          onBulkUpdate={(ids, updates) => setTasks((current) => current.map((t) => (ids.includes(t.id) ? { ...t, ...updates } : t)))}
+          onTaskReorder={(orderedIds) => setTasks((current) => {
+            const map = new Map(current.map((t) => [t.id, t]));
+            return orderedIds.map((id, idx) => {
+              const t = map.get(id);
+              return t ? { ...t, position: idx } : null;
+            }).filter(Boolean) as StoredTask[];
+          })}
+        />
+      ) : view === "gantt" ? (
+        <GanttView
+          tasks={filteredTasks as any}
+          onTaskUpdate={(id, updates) => setTasks((current) => updateTask(current, id, updates as any))}
+          zoom="week"
+          groupBy="none"
+        />
+      ) : null}
 
       <NewTaskDialog
         open={showNewTask}
