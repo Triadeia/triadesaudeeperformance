@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, GoogleIcon, LogOut, Search } from "lucide-react";
+import { AlertCircle, CheckCircle2, LogOut, Search } from "lucide-react";
 import { Badge } from "@/components/page-parts";
 
 type GoogleFile = { id: string; name: string; mime_type: string; created_time: string; size?: number };

@@ -43,7 +43,7 @@ export function AIAnalysisPanel({ insights, decisions }: { insights?: Insight[];
                   <div className="flex-1">
                     <p className="font-semibold text-slate-900">{i.title}</p>
                     <p className="mt-1 text-sm text-slate-600">{i.description}</p>
-                    {i.priority && <Badge tone="amber" className="mt-2">{i.priority}</Badge>}
+                    {i.priority && <div className="mt-2"><Badge tone="amber">{i.priority}</Badge></div>}
                   </div>
                 </div>
               );

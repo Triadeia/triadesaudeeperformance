@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarPlus, FileUp, Link2, Loader2, X, Youtube } from "lucide-react";
+import { CalendarPlus, FileUp, Link2, Loader2, X, Cloud } from "lucide-react";
 import { z } from "zod";
 
 type Mode = "upload" | "link" | "drive";
@@ -213,7 +213,7 @@ export function NewMeetingDialog() {
                 <ModeButton active={mode === "link"} icon={Link2} label="Link / YouTube" onClick={() => setMode("link")} />
                 <ModeButton
                   active={mode === "drive"}
-                  icon={Youtube}
+                  icon={Cloud}
                   label="Google Drive"
                   onClick={() => {
                     setMode("drive");
