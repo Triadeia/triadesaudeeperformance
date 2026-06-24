@@ -52,7 +52,9 @@ export function MeetingsList({ meetings }: { meetings: MeetingItem[] }) {
               <CalendarPlus className="size-4" /> Nova reunião
             </button>
           }
-          onCreated={(meeting) => router.push(`/app/reunioes/${meeting.id}`)}
+          onCreated={(meeting) =>
+            router.push(`/app/reunioes/${meeting.id}?title=${encodeURIComponent(meeting.title)}`)
+          }
         />
       </div>
 

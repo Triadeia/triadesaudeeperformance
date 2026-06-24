@@ -73,7 +73,8 @@ export async function getMeetings() {
     .from("meetings")
     .select(`
       id, title, starts_at, status, tags,
-      meeting_participants(profile:profiles(full_name)),
+      participants,
+      meeting_participants(display_name),
       meeting_summaries(executive_summary, strategic_summary),
       meeting_decisions(title),
       meeting_insights(kind, title)
@@ -96,9 +97,8 @@ export async function getMeetings() {
         ? new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(date)
         : "--:--",
       participants: (meeting.meeting_participants || []).map((item) => {
-        const profile = Array.isArray(item.profile) ? item.profile[0] : item.profile;
-        return profile?.full_name || "Participante";
-      }),
+        return item.display_name || "Participante";
+      }).concat(meeting.participants || []),
       status: meeting.status === "processed" ? "Processada" : meeting.status === "review" ? "Revisar" : meeting.status,
       tags: meeting.tags || [],
       summary: summaries?.executive_summary || "Resumo ainda não gerado.",
