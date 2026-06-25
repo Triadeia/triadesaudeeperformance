@@ -58,6 +58,10 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
+  if (pathname === "/app/tarefas") {
+    return <div className="min-h-screen">{children}</div>;
+  }
+
   return (
     <div className="app-frame min-h-screen">
       <aside className={`app-sidebar fixed inset-y-0 left-0 z-50 flex w-72 flex-col p-5 transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
