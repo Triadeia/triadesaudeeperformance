@@ -65,6 +65,11 @@ const ALL_COLUMNS: { key: ColumnKey; label: string }[] = [
 ];
 
 const PAGE_SIZE = 50;
+const DEFAULT_PRIORITY: TaskPriority = "Média";
+
+function normalizePriority(priority: string | undefined): TaskPriority {
+  return priority && priority in PRIORITY_LABELS ? (priority as TaskPriority) : DEFAULT_PRIORITY;
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -178,7 +183,7 @@ export default function TableView({
         break;
     }
     if (Object.keys(updates).length > 0) {
-      updates.updated_at = new Date().toISOString();
+      updates.updatedAt = new Date().toISOString();
       onTaskUpdate(id, updates);
     }
     setEditing(null);
@@ -190,7 +195,7 @@ export default function TableView({
   const bulkSetStatus = (status: TaskStatus) => {
     onBulkUpdate(Array.from(selected), {
       status,
-      updated_at: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
     clearSelection();
   };
@@ -213,7 +218,7 @@ export default function TableView({
     if (v == null) return;
     onBulkUpdate(Array.from(selected), {
       assignee: v.trim() || undefined,
-      updated_at: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
     clearSelection();
   };
@@ -496,36 +501,39 @@ export default function TableView({
                   {isColVisible("priority") && (
                     <td
                       className="px-3 py-2 align-top"
-                      onClick={() => startEdit(task.id, "priority", task.priority)}
+                      onClick={() => startEdit(task.id, "priority", normalizePriority(task.priority))}
                     >
-                      {editing?.id === task.id && editing.col === "priority" ? (
-                        <select
-                          autoFocus
-                          value={draftValue}
-                          onChange={(e) => setDraftValue(e.target.value)}
-                          onBlur={commitEdit}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") commitEdit();
-                            if (e.key === "Escape") cancelEdit();
-                          }}
-                          className="rounded border border-emerald-400 px-1 py-0.5"
-                        >
-                          {(Object.keys(PRIORITY_LABELS) as TaskPriority[]).map((p) => (
-                            <option key={p} value={p}>
-                              {PRIORITY_LABELS[p]}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span
-                          className={[
-                            "inline-flex rounded-full border px-2 py-0.5 text-xs font-medium",
-                            PRIORITY_COLORS[task.priority],
-                          ].join(" ")}
-                        >
-                          {PRIORITY_LABELS[task.priority]}
-                        </span>
-                      )}
+                      {(() => {
+                        const priority = normalizePriority(task.priority);
+                        return editing?.id === task.id && editing.col === "priority" ? (
+                          <select
+                            autoFocus
+                            value={draftValue}
+                            onChange={(e) => setDraftValue(e.target.value)}
+                            onBlur={commitEdit}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitEdit();
+                              if (e.key === "Escape") cancelEdit();
+                            }}
+                            className="rounded border border-emerald-400 px-1 py-0.5"
+                          >
+                            {(Object.keys(PRIORITY_LABELS) as TaskPriority[]).map((p) => (
+                              <option key={p} value={p}>
+                                {PRIORITY_LABELS[p]}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span
+                            className={[
+                              "inline-flex rounded-full border px-2 py-0.5 text-xs font-medium",
+                              PRIORITY_COLORS[priority],
+                            ].join(" ")}
+                          >
+                            {PRIORITY_LABELS[priority]}
+                          </span>
+                        );
+                      })()}
                     </td>
                   )}
 

@@ -20,7 +20,6 @@ import {
   useState,
   useMemo,
   useRef,
-  useCallback,
   useEffect,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -37,7 +36,6 @@ import {
   formatISODate,
   getWeekNumber,
   calculateTaskPosition,
-  pixelsToDate,
   parseISODate,
   diffInDays,
   addDays,
@@ -200,7 +198,7 @@ export default function GanttView({
       onTaskUpdate(drag.id, {
         start_date: formatISODate(newStart),
         due_date: formatISODate(newEnd),
-        updated_at: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
     }
     setDrag(null);

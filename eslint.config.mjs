@@ -18,6 +18,7 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    ".claude/**",
     // macOS metadata files (AppleDouble) on network/SSD volumes
     "**/._*",
   ]),

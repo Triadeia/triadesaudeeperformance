@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Badge, PageHeader } from "@/components/page-parts";
 import { NewMeetingDialog } from "@/components/new-meeting-dialog";
+import type { LucideIcon } from "lucide-react";
 
 type Meeting = {
   id: string;
@@ -25,6 +26,9 @@ type Meeting = {
   meeting_participants?: Array<{ display_name?: string; email?: string }>;
   stats?: { decisions: number; actionItems: number };
 };
+
+type BadgeTone = "green" | "amber" | "red" | "blue" | "slate";
+type StatusConfig = { badge: BadgeTone; icon: LucideIcon; label: string };
 
 let storageRevision = 0;
 const storageListeners = new Set<() => void>();
@@ -72,7 +76,7 @@ export function MeetingsList() {
     })();
   }, [hydrated, statusFilter, searchTerm]);
 
-  const statusMap = {
+  const statusMap: Record<Meeting["status"], StatusConfig> = {
     draft: { badge: "slate", icon: FileEdit, label: "Rascunho" },
     uploading: { badge: "amber", icon: UploadCloud, label: "Enviando" },
     transcribing: { badge: "blue", icon: Mic, label: "Transcrevendo" },
@@ -143,7 +147,7 @@ export function MeetingsList() {
                 </div>
                 <span className="hidden text-sm text-slate-500 md:block">{m.meeting_participants?.length || 0} pessoas</span>
                 <span className="text-sm text-slate-500">{formatDate(m.starts_at)}</span>
-                <Badge tone={cfg.badge as any}><Icon className="size-3" /> {cfg.label}</Badge>
+                <Badge tone={cfg.badge}><Icon className="size-3" /> {cfg.label}</Badge>
               </Link>
             );
           })}
@@ -156,7 +160,7 @@ export function MeetingsList() {
             return (
               <Link key={m.id} href={`/app/reunioes/${m.id}`} className="panel group rounded-xl p-5 transition hover:shadow-md">
                 <div className="mb-3 flex items-start justify-between">
-                  <Badge tone={cfg.badge as any}><Icon className="size-3" /> {cfg.label}</Badge>
+                  <Badge tone={cfg.badge}><Icon className="size-3" /> {cfg.label}</Badge>
                 </div>
                 <h3 className="font-heading font-semibold text-slate-900 group-hover:text-emerald-700">{m.title}</h3>
                 <div className="mt-2 flex items-center gap-3 text-sm text-slate-500">

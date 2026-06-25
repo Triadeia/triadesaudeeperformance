@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/page-parts";
-import { AlertTriangle, FileText, Lightbulb, CheckCircle2, Users, CalendarDays } from "lucide-react";
+import { AlertTriangle, FileText, Lightbulb, Users, CalendarDays } from "lucide-react";
 
 type Meeting = {
   id: string;
@@ -14,12 +14,14 @@ type Meeting = {
   meeting_attachments?: Array<{ filename: string }>;
 };
 
+type Decision = { title: string; description?: string };
+
 export function MeetingDetail({ meetingId }: { meetingId: string }) {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
-  const [transcript, setTranscript] = useState("");
-  const [decisions, setDecisions] = useState<any[]>([]);
+  const [transcript] = useState("");
+  const [decisions] = useState<Decision[]>([]);
 
   useEffect(() => {
     (async () => {

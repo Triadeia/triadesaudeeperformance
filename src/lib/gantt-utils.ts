@@ -160,11 +160,13 @@ export function getTasksByStatus(
   tasks: StoredTask[]
 ): Record<TaskStatus, StoredTask[]> {
   const out: Record<TaskStatus, StoredTask[]> = {
-    todo: [],
-    in_progress: [],
-    review: [],
-    done: [],
-    blocked: [],
+    Backlog: [],
+    "A Fazer": [],
+    "Em andamento": [],
+    "Em revisão": [],
+    Bloqueada: [],
+    Concluída: [],
+    Cancelada: [],
   };
   for (const t of tasks) out[t.status].push(t);
   return out;
@@ -243,12 +245,16 @@ export function eachDayInRange(start: Date, end: Date): Date[] {
 // ----------------------------------------------------------------------------
 
 export const PRIORITY_ORDER: Record<TaskPriority, number> = {
-  urgent: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
+  Urgente: 0,
+  Alta: 1,
+  Média: 2,
+  Baixa: 3,
 };
 
+function getPriorityOrder(priority: string | undefined): number {
+  return priority && priority in PRIORITY_ORDER ? PRIORITY_ORDER[priority as TaskPriority] : PRIORITY_ORDER.Média;
+}
+
 export function sortByPriority(tasks: StoredTask[]): StoredTask[] {
-  return [...tasks].sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
+  return [...tasks].sort((a, b) => getPriorityOrder(a.priority) - getPriorityOrder(b.priority));
 }

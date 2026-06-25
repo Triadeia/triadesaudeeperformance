@@ -28,6 +28,12 @@ export interface StoredTask {
   score: number;
   createdAt: string;
   updatedAt: string;
+  /** Open ClickUp optional fields. */
+  start_date?: string;
+  due_date?: string;
+  position?: number;
+  dependsOn?: string[];
+  duration?: number;
 }
 
 export interface TaskFiltersState {

@@ -24,6 +24,7 @@ import { KanbanView } from "@/components/KanbanView";
 import { CalendarView } from "@/components/CalendarView";
 import TableView from "@/components/TableView";
 import GanttView from "@/components/GanttView";
+import type { StoredTask as OpenClickUpTask } from "@/types/task";
 
 type ViewMode = "list" | "kanban" | "calendar" | "table" | "gantt";
 
@@ -94,6 +95,17 @@ export function TasksWorkspace() {
   }, []);
 
   const filteredTasks = useMemo(() => applyFilters(tasks, filters), [tasks, filters]);
+  const openClickUpTasks = useMemo<OpenClickUpTask[]>(
+    () =>
+      filteredTasks.map((task, index) => ({
+        ...task,
+        due_date: task.due_date ?? task.dueDate,
+        start_date: task.start_date ?? task.due_date ?? task.dueDate,
+        position: task.position ?? index,
+        duration: task.duration ?? 1,
+      })),
+    [filteredTasks],
+  );
 
   const assignees = useMemo(() => Array.from(new Set(tasks.map((task) => task.assignee))).sort(), [tasks]);
   const projects = useMemo(() => Array.from(new Set(tasks.map((task) => task.project))).sort(), [tasks]);
@@ -111,6 +123,13 @@ export function TasksWorkspace() {
   }
   function removeTask(taskId: string) {
     setTasks((current) => deleteTask(current, taskId));
+  }
+  function applyOpenClickUpUpdate(taskId: string, updates: Partial<OpenClickUpTask>) {
+    const patch: Partial<StoredTask> = { ...updates };
+    if (updates.due_date !== undefined) {
+      patch.dueDate = updates.due_date;
+    }
+    setTasks((current) => updateTask(current, taskId, patch));
   }
 
   function runCommand() {
@@ -275,22 +294,33 @@ export function TasksWorkspace() {
         <CalendarView tasks={filteredTasks} onDueDateChange={changeDueDate} />
       ) : view === "table" ? (
         <TableView
-          tasks={filteredTasks as any}
-          onTaskUpdate={(id, updates) => setTasks((current) => updateTask(current, id, updates as any))}
+          tasks={openClickUpTasks}
+          onTaskUpdate={applyOpenClickUpUpdate}
           onTaskDelete={removeTask}
-          onBulkUpdate={(ids, updates) => setTasks((current) => current.map((t) => (ids.includes(t.id) ? { ...t, ...updates } as any : t)) as any)}
+          onBulkUpdate={(ids, updates) =>
+            setTasks((current) =>
+              current.map((task) => {
+                if (!ids.includes(task.id)) return task;
+                const patch: Partial<StoredTask> = { ...updates };
+                if (updates.due_date !== undefined) patch.dueDate = updates.due_date;
+                return { ...task, ...patch, updatedAt: new Date().toISOString() };
+              }),
+            )
+          }
           onTaskReorder={(orderedIds) => setTasks((current) => {
             const map = new Map(current.map((t) => [t.id, t]));
-            return orderedIds.map((id, idx) => {
+            const ordered: StoredTask[] = [];
+            orderedIds.forEach((id, idx) => {
               const t = map.get(id);
-              return t ? { ...t, position: idx } : null;
-            }).filter(Boolean) as StoredTask[];
+              if (t) ordered.push({ ...t, position: idx });
+            });
+            return ordered;
           })}
         />
       ) : view === "gantt" ? (
         <GanttView
-          tasks={filteredTasks as any}
-          onTaskUpdate={(id, updates) => setTasks((current) => updateTask(current, id, updates as any))}
+          tasks={openClickUpTasks}
+          onTaskUpdate={applyOpenClickUpUpdate}
           zoom="week"
           groupBy="none"
         />

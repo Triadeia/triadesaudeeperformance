@@ -4,8 +4,9 @@ import { AlertTriangle, CheckCircle2, Lightbulb, ListTodo } from "lucide-react";
 import { Badge } from "@/components/page-parts";
 
 type Insight = { kind: "risk" | "opportunity" | "action" | "insight"; title: string; description?: string; priority?: string };
+type Decision = { title: string; description?: string; status?: string };
 
-export function AIAnalysisPanel({ insights, decisions }: { insights?: Insight[]; decisions?: any[] }) {
+export function AIAnalysisPanel({ insights, decisions }: { insights?: Insight[]; decisions?: Decision[] }) {
   return (
     <div className="space-y-6">
       <div>

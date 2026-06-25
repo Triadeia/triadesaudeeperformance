@@ -32,8 +32,10 @@ export interface Task {
   updated_at: string;
 }
 
+type TaskQueryFilters = Partial<Pick<Task, "status" | "priority" | "assignee">>;
+
 export const supabaseTasksRepository = {
-  async getTasks(filters?: Record<string, any>) {
+  async getTasks(filters?: TaskQueryFilters) {
     if (!supabase) return [];
     try {
       let query = supabase.from("tasks").select("*");
