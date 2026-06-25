@@ -375,6 +375,7 @@ const views: { key: ViewMode; label: string; icon: React.ReactNode }[] = [
 ];
 
 function todayLabel(iso: string) {
+  if (!iso || Number.isNaN(new Date(`${iso}T00:00:00`).getTime())) return "No date";
   const today = new Date("2026-06-25T00:00:00");
   const date = new Date(`${iso}T00:00:00`);
   const diff = Math.round((date.getTime() - today.getTime()) / 86_400_000);
@@ -432,16 +433,93 @@ function Tag({ children }: { children: string }) {
   return <span className={cls("rounded-full px-2 py-0.5 text-[11px] font-medium", tone)}>{children}</span>;
 }
 
+function isStatus(value: unknown): value is StatusKey {
+  return typeof value === "string" && value in statusConfig;
+}
+
+function isPriority(value: unknown): value is Priority {
+  return typeof value === "string" && value in priorityConfig;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function normalizeTask(value: unknown, index: number): Task {
+  const base = seedTasks[index % seedTasks.length];
+  if (!value || typeof value !== "object") return { ...base };
+
+  const raw = value as Partial<Task> & Record<string, unknown>;
+  const assignees = stringArray(raw.assignees).length > 0 ? stringArray(raw.assignees) : base.assignees;
+  const tags = stringArray(raw.tags);
+  const watchers = stringArray(raw.watchers);
+  const dependencies = stringArray(raw.dependencies);
+  const checklists = stringArray(raw.checklists);
+  const subtasks = Array.isArray(raw.subtasks)
+    ? (raw.subtasks as unknown[])
+        .filter((item): item is Partial<Subtask> & Record<string, unknown> => Boolean(item) && typeof item === "object")
+        .map((item, subIndex) => ({
+          id: typeof item.id === "string" && item.id ? item.id : `${base.id}-sub-${subIndex}`,
+          title: typeof item.title === "string" && item.title.trim() ? item.title : "Subtask",
+          done: Boolean(item.done),
+          assignee: typeof item.assignee === "string" && item.assignee ? item.assignee : assignees[0] ?? "SC",
+        }))
+    : [];
+  const customFields =
+    raw.customFields && typeof raw.customFields === "object"
+      ? (raw.customFields as Partial<CustomFields> & Record<string, unknown>)
+      : {};
+  const storyPoints = typeof raw.storyPoints === "number" && Number.isFinite(raw.storyPoints) ? raw.storyPoints : base.storyPoints;
+  const environment =
+    customFields.environment === "Dev" ||
+    customFields.environment === "Staging" ||
+    customFields.environment === "Production" ||
+    customFields.environment === "-"
+      ? customFields.environment
+      : base.customFields.environment;
+
+  return {
+    ...base,
+    id: typeof raw.id === "string" && raw.id ? raw.id : base.id,
+    title: typeof raw.title === "string" && raw.title.trim() ? raw.title : base.title,
+    description: typeof raw.description === "string" ? raw.description : base.description,
+    status: isStatus(raw.status) ? raw.status : base.status,
+    priority: isPriority(raw.priority) ? raw.priority : base.priority,
+    assignees,
+    tags,
+    startDate: typeof raw.startDate === "string" && raw.startDate ? raw.startDate : base.startDate,
+    dueDate: typeof raw.dueDate === "string" && raw.dueDate ? raw.dueDate : base.dueDate,
+    storyPoints,
+    list: typeof raw.list === "string" && raw.list ? raw.list : base.list,
+    space: typeof raw.space === "string" && raw.space ? raw.space : base.space,
+    folder: typeof raw.folder === "string" ? raw.folder : base.folder,
+    dependencies,
+    comments: typeof raw.comments === "number" && Number.isFinite(raw.comments) ? raw.comments : 0,
+    watchers,
+    subtasks,
+    checklists,
+    customFields: { storyPoints, environment },
+    timeEstimate: typeof raw.timeEstimate === "string" ? raw.timeEstimate : base.timeEstimate,
+    timeLogged: typeof raw.timeLogged === "string" ? raw.timeLogged : base.timeLogged,
+  };
+}
+
+function loadStoredTasks(): Task[] {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return seedTasks;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return seedTasks;
+    const normalized = parsed.map(normalizeTask);
+    return normalized.length > 0 ? normalized : seedTasks;
+  } catch {
+    return seedTasks;
+  }
+}
+
 export function TasksWorkspace() {
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    if (typeof window === "undefined") return seedTasks;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as Task[]) : seedTasks;
-    } catch {
-      return seedTasks;
-    }
-  });
+  const [tasks, setTasks] = useState<Task[]>(seedTasks);
+  const [hydrated, setHydrated] = useState(false);
   const [view, setView] = useState<ViewMode>("list");
   const [activeList, setActiveList] = useState("Sprint 24");
   const [query, setQuery] = useState("");
@@ -453,13 +531,22 @@ export function TasksWorkspace() {
   const [sortBy, setSortBy] = useState<"manual" | "due" | "priority">("manual");
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setTasks(loadStoredTasks());
+      setHydrated(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-  }, [tasks]);
+  }, [hydrated, tasks]);
 
   const visibleTasks = useMemo(() => {
     const searched = tasks.filter((task) => {
       const inList = task.list === activeList || activeList === "Home";
-      const text = `${task.title} ${task.description} ${task.tags.join(" ")} ${task.assignees.join(" ")}`.toLowerCase();
+      const text = `${task.title} ${task.description} ${(task.tags ?? []).join(" ")} ${(task.assignees ?? []).join(" ")}`.toLowerCase();
       const matchesQuery = query.trim().length === 0 || text.includes(query.toLowerCase());
       const matchesPriority = filterPriority === "all" || task.priority === filterPriority;
       return inList && matchesQuery && matchesPriority;
@@ -706,7 +793,7 @@ function groupTasks(tasks: Task[], groupBy: GroupBy) {
   if (groupBy === "none") return [{ key: "all", label: "Tasks", tasks }];
   const map = new Map<string, Task[]>();
   for (const task of tasks) {
-    const key = groupBy === "status" ? statusConfig[task.status].label : groupBy === "priority" ? priorityConfig[task.priority].label : task.assignees[0] ?? "Unassigned";
+    const key = groupBy === "status" ? statusConfig[task.status].label : groupBy === "priority" ? priorityConfig[task.priority].label : (task.assignees ?? [])[0] ?? "Unassigned";
     map.set(key, [...(map.get(key) ?? []), task]);
   }
   return Array.from(map, ([key, value]) => ({ key, label: key, tasks: value }));
@@ -718,13 +805,13 @@ function TaskRow({ task, onOpen, dense = false }: { task: Task; onOpen: (id: str
       <span className="flex items-center gap-2">
         <StatusDot status={task.status} />
         <span>{task.title}</span>
-        {task.dependencies.length ? <span className="text-xs text-slate-400">⌘ {task.dependencies.length}</span> : null}
+        {(task.dependencies ?? []).length ? <span className="text-xs text-slate-400">⌘ {(task.dependencies ?? []).length}</span> : null}
         {task.comments ? <span className="text-xs text-slate-400">▢ {task.comments}</span> : null}
       </span>
-      <span className="flex items-center -space-x-2">{task.assignees.map((id) => <Avatar key={id} id={id} />)}</span>
+      <span className="flex items-center -space-x-2">{(task.assignees ?? []).map((id) => <Avatar key={id} id={id} />)}</span>
       <span className={todayLabel(task.dueDate).includes("Today") || todayLabel(task.dueDate).includes("Tomorrow") ? "text-orange-500" : "text-slate-500"}>{todayLabel(task.dueDate)}</span>
       <PriorityFlag priority={task.priority} />
-      <span>{task.storyPoints}</span>
+      <span>{task.storyPoints ?? 0}</span>
     </button>
   );
 }
@@ -775,8 +862,8 @@ function BoardView({ tasks, onOpen, onMove, onAdd }: { tasks: Task[]; onOpen: (i
             {column.tasks.map((task) => (
               <button key={task.id} draggable onDragStart={(event) => event.dataTransfer.setData("task", task.id)} onClick={() => onOpen(task.id)} className="w-full rounded-md border border-[#e8eaed] bg-white p-3 text-left shadow-sm hover:shadow-md dark:border-[#2a2e38] dark:bg-[#20232c]">
                 <div className="mb-3 flex items-start gap-2"><StatusDot status={task.status} /><span className="text-sm">{task.title}</span><PriorityFlag priority={task.priority} /></div>
-                <div className="mb-3 flex flex-wrap gap-1">{task.tags.map((tag) => <Tag key={tag}>{tag}</Tag>)}</div>
-                <div className="flex items-center justify-between text-xs text-slate-500"><span>{todayLabel(task.dueDate)}</span><span className="flex -space-x-2">{task.assignees.map((id) => <Avatar key={id} id={id} />)}</span></div>
+                <div className="mb-3 flex flex-wrap gap-1">{(task.tags ?? []).map((tag) => <Tag key={tag}>{tag}</Tag>)}</div>
+                <div className="flex items-center justify-between text-xs text-slate-500"><span>{todayLabel(task.dueDate)}</span><span className="flex -space-x-2">{(task.assignees ?? []).map((id) => <Avatar key={id} id={id} />)}</span></div>
               </button>
             ))}
           </div>
@@ -826,8 +913,8 @@ function GanttView({ tasks, onOpen, dark }: { tasks: Task[]; onOpen: (id: string
           </div>
           <div className="relative">
             {tasks.map((task) => {
-              const start = Number(task.startDate.slice(-2));
-              const due = Number(task.dueDate.slice(-2));
+              const start = Number(task.startDate?.slice(-2) ?? "4");
+              const due = Number(task.dueDate?.slice(-2) ?? "4");
               const left = Math.max(0, start - 4) * px + 10;
               const width = Math.max(1, due - start + 1) * px - 20;
               return (
@@ -835,9 +922,9 @@ function GanttView({ tasks, onOpen, dark }: { tasks: Task[]; onOpen: (id: string
                   {days.map((day) => <span key={day} className="absolute top-0 h-10 border-r border-[#2a2e38]" style={{ left: (day - 4) * px, width: 1 }} />)}
                   <button onClick={() => onOpen(task.id)} className={cls("absolute top-2 flex h-5 items-center justify-between rounded-full px-2 text-[11px] text-white", dark ? "bg-slate-500" : "bg-[#87909e]")} style={{ left, width }}>
                     <span className="truncate">{task.title}</span>
-                    <Avatar id={task.assignees[0] ?? "SC"} />
+                    <Avatar id={(task.assignees ?? [])[0] ?? "SC"} />
                   </button>
-                  {task.dependencies.length ? <svg className="pointer-events-none absolute inset-0 overflow-visible"><path d={`M ${Math.max(0, start - 5) * px + 40} 20 C ${left - 30} 20 ${left - 30} 20 ${left} 20`} stroke="#87909e" fill="none" strokeWidth="2" /></svg> : null}
+                  {(task.dependencies ?? []).length ? <svg className="pointer-events-none absolute inset-0 overflow-visible"><path d={`M ${Math.max(0, start - 5) * px + 40} 20 C ${left - 30} 20 ${left - 30} 20 ${left} 20`} stroke="#87909e" fill="none" strokeWidth="2" /></svg> : null}
                 </div>
               );
             })}
@@ -862,10 +949,10 @@ function TableView({ tasks, groupBy, onOpen, onPatch }: { tasks: Task[]; groupBy
             <div key={task.id} className="grid h-10 grid-cols-[42px_minmax(280px,1fr)_190px_110px_120px_120px] items-center border-b border-[#e8eaed] px-4 text-sm hover:bg-[#f8f9fb] dark:border-[#2a2e38] dark:hover:bg-[#20232c]">
               <button onClick={() => onPatch(task.id, { status: task.status === "complete" ? "todo" : "complete" })}><StatusDot status={task.status} /></button>
               <button onClick={() => onOpen(task.id)} className="truncate text-left">{task.title}</button>
-              <span className="flex -space-x-2">{task.assignees.map((id) => <Avatar key={id} id={id} />)}</span>
+              <span className="flex -space-x-2">{(task.assignees ?? []).map((id) => <Avatar key={id} id={id} />)}</span>
               <span>{todayLabel(task.dueDate)}</span>
               <PriorityFlag priority={task.priority} />
-              <span>{task.storyPoints}</span>
+              <span>{task.storyPoints ?? 0}</span>
             </div>
           ))}
         </div>
@@ -902,21 +989,21 @@ function TaskModal({ task, onClose, onPatch }: { task: Task; onClose: () => void
             <textarea value={task.description} onChange={(event) => onPatch(task.id, { description: event.target.value })} className="min-h-24 w-full rounded-lg border border-[#e8eaed] bg-transparent p-3 outline-none focus:border-[#7b68ee] dark:border-[#2a2e38]" />
           </div>
           <section className="mb-6">
-            <h3 className="mb-3 flex items-center gap-2 font-medium"><Check className="size-4" /> Subtasks <span className="text-sm text-slate-400">{task.subtasks.length}</span></h3>
+            <h3 className="mb-3 flex items-center gap-2 font-medium"><Check className="size-4" /> Subtasks <span className="text-sm text-slate-400">{(task.subtasks ?? []).length}</span></h3>
             <div className="overflow-hidden rounded-lg border border-[#e8eaed] dark:border-[#2a2e38]">
-              {task.subtasks.map((subtask) => (
+              {(task.subtasks ?? []).map((subtask) => (
                 <div key={subtask.id} className="flex h-9 items-center gap-3 border-b border-[#e8eaed] px-3 last:border-b-0 dark:border-[#2a2e38]">
                   {subtask.done ? <StatusDot status="complete" /> : <StatusDot status="progress" />}
                   <span className="text-sm">{subtask.title}</span>
                   <span className="ml-auto"><Avatar id={subtask.assignee} /></span>
                 </div>
               ))}
-              <button onClick={() => onPatch(task.id, { subtasks: [...task.subtasks, { id: `sub-${Date.now()}`, title: "New subtask", done: false, assignee: "SC" }] })} className="flex h-9 items-center gap-2 px-3 text-sm text-slate-400 hover:text-[#7b68ee]"><Plus className="size-4" /> Add a subtask</button>
+              <button onClick={() => onPatch(task.id, { subtasks: [...(task.subtasks ?? []), { id: `sub-${Date.now()}`, title: "New subtask", done: false, assignee: "SC" }] })} className="flex h-9 items-center gap-2 px-3 text-sm text-slate-400 hover:text-[#7b68ee]"><Plus className="size-4" /> Add a subtask</button>
             </div>
           </section>
           <section className="mb-6">
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Check className="size-4" /> Checklists</h3>
-            <button onClick={() => onPatch(task.id, { checklists: [...task.checklists, "New checklist"] })} className="flex h-9 items-center gap-2 text-sm text-slate-400 hover:text-[#7b68ee]"><Plus className="size-4" /> Add checklist</button>
+            <button onClick={() => onPatch(task.id, { checklists: [...(task.checklists ?? []), "New checklist"] })} className="flex h-9 items-center gap-2 text-sm text-slate-400 hover:text-[#7b68ee]"><Plus className="size-4" /> Add checklist</button>
           </section>
           <section className="mb-6">
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Paperclip className="size-4" /> Attachments</h3>
@@ -929,17 +1016,17 @@ function TaskModal({ task, onClose, onPatch }: { task: Task; onClose: () => void
         </div>
         <aside className="w-[320px] shrink-0 border-l border-[#e8eaed] bg-[#fafbfc] p-6 dark:border-[#2a2e38] dark:bg-[#1f222b]">
           <div className="mb-8 flex justify-end gap-2"><MoreHorizontal className="size-4 text-slate-400" /><Columns3 className="size-4 text-slate-400" /><button onClick={onClose}><X className="size-4 text-slate-400" /></button></div>
-          <MetaRow label="Assignees"><span className="flex -space-x-2">{task.assignees.map((id) => <Avatar key={id} id={id} size="md" />)}</span></MetaRow>
+          <MetaRow label="Assignees"><span className="flex -space-x-2">{(task.assignees ?? []).map((id) => <Avatar key={id} id={id} size="md" />)}</span></MetaRow>
           <MetaRow label="Due date"><span className="text-orange-500">{todayLabel(task.dueDate)}</span></MetaRow>
           <MetaRow label="Start date"><span className="text-red-500">{todayLabel(task.startDate)}</span></MetaRow>
           <MetaRow label="Priority"><PriorityFlag priority={task.priority} /></MetaRow>
           <MetaRow label="Recurring"><span className="text-slate-500">Doesn&apos;t repeat</span></MetaRow>
-          <MetaRow label="Tags"><span className="flex flex-wrap gap-1">{task.tags.map((tag) => <Tag key={tag}>{tag}</Tag>)}</span></MetaRow>
-          <MetaRow label="Watchers"><span className="flex -space-x-2">{task.watchers.map((id) => <Avatar key={id} id={id} />)}</span></MetaRow>
+          <MetaRow label="Tags"><span className="flex flex-wrap gap-1">{(task.tags ?? []).map((tag) => <Tag key={tag}>{tag}</Tag>)}</span></MetaRow>
+          <MetaRow label="Watchers"><span className="flex -space-x-2">{(task.watchers ?? []).map((id) => <Avatar key={id} id={id} />)}</span></MetaRow>
           <div className="my-5 border-t border-[#e8eaed] pt-5 dark:border-[#2a2e38]">
             <p className="mb-4 text-xs font-semibold text-slate-500">CUSTOM FIELDS</p>
-            <MetaRow label="Story Points">{task.storyPoints}</MetaRow>
-            <MetaRow label="Environment"><span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-500 dark:bg-blue-500/15">{task.customFields.environment}</span></MetaRow>
+            <MetaRow label="Story Points">{task.storyPoints ?? 0}</MetaRow>
+            <MetaRow label="Environment"><span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-500 dark:bg-blue-500/15">{task.customFields?.environment ?? "-"}</span></MetaRow>
           </div>
           <div className="border-t border-[#e8eaed] pt-5 text-xs text-slate-500 dark:border-[#2a2e38]">Created by Santiago Cotto<br />Jun 7, 2026</div>
         </aside>
