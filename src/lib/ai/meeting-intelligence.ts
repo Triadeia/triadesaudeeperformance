@@ -89,13 +89,38 @@ function fallbackIntelligence(input: { title: string; transcript: string }): Mee
     .split(/(?<=[.!?])\s+/)
     .map((sentence) => sentence.trim())
     .filter(Boolean);
+  const actionSentences = sentences
+    .filter((sentence) =>
+      /\b(precisa|vamos|deve|definir|criar|corrigir|subir|publicar|configurar|validar|revisar|implementar|integrar|finalizar)\b/i.test(
+        sentence,
+      ),
+    )
+    .slice(0, 6);
+  const decisionSentences = sentences
+    .filter((sentence) => /\b(decid|defin|alinh|aprov|prioriz)\w*/i.test(sentence))
+    .slice(0, 4);
+  const riskSentences = sentences
+    .filter((sentence) => /\b(risco|bloque|depend|erro|falha|problema|pendente)\w*/i.test(sentence))
+    .slice(0, 4);
 
   return {
     executiveSummary: excerpt || `A reunião "${input.title}" ainda não possui transcrição suficiente.`,
     strategicSummary: "Análise local gerada sem provedor externo. Configure OPENAI_API_KEY para uma leitura estratégica completa.",
-    decisions: [],
-    tasks: [],
-    risks: [],
+    decisions: decisionSentences.map((sentence) => ({
+      title: sentence.slice(0, 140),
+      description: sentence,
+    })),
+    tasks: (actionSentences.length ? actionSentences : sentences.slice(0, 3)).map((sentence) => ({
+      title: sentence.replace(/^(vamos|precisa|deve|definir|criar|corrigir)\s+/i, "").slice(0, 120),
+      description: sentence,
+      priority: /urgente|hoje|imediat|bloque/i.test(sentence) ? "high" : "medium",
+      area: /api|deploy|vercel|github|banco|supabase/i.test(sentence) ? "Tecnologia" : "Operação",
+    })),
+    risks: riskSentences.map((sentence) => ({
+      title: sentence.slice(0, 140),
+      description: sentence,
+      severity: /grave|crítico|critico|bloque/i.test(sentence) ? "high" : "medium",
+    })),
     opportunities: [],
     nextSteps: sentences.slice(0, 3),
     nextAgenda: [],

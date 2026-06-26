@@ -59,6 +59,7 @@ interface TaskRow {
   status: string;
   priority: string;
   area: string | null;
+  meeting_id: string | null;
   due_at: string | null;
   ai_score: number | null;
   created_at: string;
@@ -68,7 +69,7 @@ interface TaskRow {
 }
 
 const TASK_SELECT = `
-  id, title, description, status, priority, area, due_at, ai_score,
+  id, title, description, status, priority, area, meeting_id, due_at, ai_score,
   created_at, updated_at,
   assignee:profiles!tasks_assignee_id_fkey(full_name),
   project:projects(name)
@@ -86,18 +87,27 @@ function shapeTask(row: TaskRow) {
     id: row.id,
     title: row.title,
     description: row.description ?? "",
-    status: (TASK_STATUS_LABELS.find((label) => fromStatusLabel(label) === row.status)
-      ?? "Backlog") as TaskStatusLabel,
-    priority: (TASK_PRIORITY_LABELS.find((label) => fromPriorityLabel(label) === row.priority)
-      ?? "Média") as TaskPriorityLabel,
+    status: toStatusLabel(row.status),
+    priority: toPriorityLabel(row.priority),
     assignee: assignee?.full_name ?? "",
     project: project?.name ?? "",
     area: row.area ?? "",
+    meeting_id: row.meeting_id,
     due_date: row.due_at ? row.due_at.slice(0, 10) : null,
     score: row.ai_score ?? 0,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+function toStatusLabel(value: string): TaskStatusLabel {
+  if ((TASK_STATUS_LABELS as readonly string[]).includes(value)) return value as TaskStatusLabel;
+  return (TASK_STATUS_LABELS.find((label) => fromStatusLabel(label) === value) ?? "Backlog") as TaskStatusLabel;
+}
+
+function toPriorityLabel(value: string | null): TaskPriorityLabel {
+  if (value && (TASK_PRIORITY_LABELS as readonly string[]).includes(value)) return value as TaskPriorityLabel;
+  return (TASK_PRIORITY_LABELS.find((label) => fromPriorityLabel(label) === value) ?? "Média") as TaskPriorityLabel;
 }
 
 export async function PUT(

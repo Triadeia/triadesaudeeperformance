@@ -71,16 +71,21 @@ export function NewMeetingDialog({
           body: JSON.stringify({
             title: title.trim(),
             description: description.trim() || undefined,
-            meeting_date: new Date(meetingDate).toISOString(),
+            starts_at: new Date(meetingDate).toISOString(),
             participants: participantsRaw
               .split(/[,;\n]/)
               .map((item) => item.trim())
-              .filter(Boolean),
+              .filter(Boolean)
+              .map((item) => (item.includes("@") ? { email: item } : { display_name: item })),
+            source: mode === "upload" ? "upload" : mode,
+            source_ref: mode === "upload" ? undefined : externalUrl.trim(),
           }),
         });
         const created = await createResp.json();
         if (!createResp.ok) throw new Error(created.error || "Falha ao criar reunião.");
-        const meetingId: string = created.id;
+        const createdMeeting = created.meeting ?? created;
+        const meetingId: string | undefined = createdMeeting.id;
+        if (!meetingId) throw new Error("Reunião criada sem identificador.");
 
         if (mode === "upload" && file) {
           const form = new FormData();
@@ -93,23 +98,10 @@ export function NewMeetingDialog({
             const data = await upResp.json().catch(() => ({}));
             throw new Error(data.error || "Upload falhou.");
           }
-        } else if (mode === "link" || mode === "youtube") {
-          const upResp = await fetch(`/api/reunioes/${meetingId}/upload`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              source: mode === "youtube" ? "youtube" : "link",
-              url: externalUrl.trim(),
-            }),
-          });
-          if (!upResp.ok) {
-            const data = await upResp.json().catch(() => ({}));
-            throw new Error(data.error || "Falha ao registrar link.");
-          }
         }
 
         setSuccess("Reunião criada com sucesso.");
-        onCreated?.({ id: meetingId, title: created.title });
+        onCreated?.({ id: meetingId, title: createdMeeting.title ?? title.trim() });
         setTimeout(() => {
           close();
         }, 600);

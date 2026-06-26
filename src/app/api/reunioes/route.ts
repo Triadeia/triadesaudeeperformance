@@ -36,8 +36,71 @@ export async function GET(request: Request) {
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
   const search = url.searchParams.get("search");
+  const id = url.searchParams.get("id");
 
   const supabase = await createClient();
+
+  if (id) {
+    const { data: meeting, error } = await supabase
+      .from("meetings")
+      .select(
+        `id, title, description, starts_at, ends_at, status, tags, created_at, updated_at,
+         meeting_participants(id, profile_id, display_name, email, attended),
+         meeting_attachments(id, filename, mime_type, size, source, source_ref, processing_status, uploaded_at)`,
+      )
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (!meeting) return NextResponse.json({ meetings: [] });
+
+    const [transcripts, summaries, decisions, insights, tasks] = await Promise.all([
+      supabase
+        .from("meeting_transcripts")
+        .select("id, content, mime_type, byte_size, created_at, updated_at")
+        .eq("meeting_id", id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("meeting_summaries")
+        .select(
+          "id, executive_summary, strategic_summary, next_steps, next_agenda, product_insights, marketing_insights, operations_insights, pending_questions, model, updated_at",
+        )
+        .eq("meeting_id", id)
+        .limit(1),
+      supabase
+        .from("meeting_decisions")
+        .select("id, title, description, owner_id, status, created_at")
+        .eq("meeting_id", id)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("meeting_insights")
+        .select("id, kind, title, description, severity, priority, created_at")
+        .eq("meeting_id", id)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("tasks")
+        .select("id, title, description, status, priority, area, due_at, ai_score, created_at, updated_at")
+        .eq("meeting_id", id)
+        .order("created_at", { ascending: false }),
+    ]);
+
+    return NextResponse.json({
+      meetings: [
+        {
+          ...meeting,
+          meeting_transcripts: transcripts.data ?? [],
+          meeting_summaries: summaries.data ?? [],
+          meeting_decisions: decisions.data ?? [],
+          meeting_insights: insights.data ?? [],
+          tasks: tasks.error ? [] : (tasks.data ?? []),
+        },
+      ],
+      warnings: [transcripts.error, summaries.error, decisions.error, insights.error, tasks.error]
+        .filter(Boolean)
+        .map((item) => item?.message),
+    });
+  }
+
   let query = supabase
     .from("meetings")
     .select(

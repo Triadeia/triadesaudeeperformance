@@ -64,6 +64,23 @@ type Task = {
   customFields: CustomFields;
   timeEstimate: string;
   timeLogged: string;
+  meetingId?: string | null;
+};
+
+type ApiTask = {
+  id: string;
+  title: string;
+  description?: string | null;
+  status?: string | null;
+  priority?: string | null;
+  assignee?: string | null;
+  project?: string | null;
+  area?: string | null;
+  meeting_id?: string | null;
+  due_date?: string | null;
+  score?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 const STORAGE_KEY = "triade:open-clickup:complete:v1";
@@ -543,6 +560,7 @@ function normalizeTask(value: unknown, index: number): Task {
     customFields: { storyPoints, environment },
     timeEstimate: typeof raw.timeEstimate === "string" ? raw.timeEstimate : base.timeEstimate,
     timeLogged: typeof raw.timeLogged === "string" ? raw.timeLogged : base.timeLogged,
+    meetingId: typeof raw.meetingId === "string" ? raw.meetingId : null,
   };
 }
 
@@ -607,6 +625,111 @@ function timeFromMinutes(total: number) {
   return `${minutes}m`;
 }
 
+const apiStatusToUi: Record<string, StatusKey> = {
+  Backlog: "todo",
+  "A Fazer": "todo",
+  "Em andamento": "progress",
+  "Em revisão": "review",
+  Bloqueada: "review",
+  Concluída: "complete",
+  Cancelada: "complete",
+  backlog: "todo",
+  todo: "todo",
+  in_progress: "progress",
+  review: "review",
+  blocked: "review",
+  done: "complete",
+  cancelled: "complete",
+};
+
+const uiStatusToApi: Record<StatusKey, string> = {
+  todo: "A Fazer",
+  progress: "Em andamento",
+  review: "Em revisão",
+  complete: "Concluída",
+};
+
+const apiPriorityToUi: Record<string, Priority> = {
+  Urgente: "urgent",
+  Alta: "high",
+  Média: "normal",
+  Baixa: "low",
+  urgent: "urgent",
+  high: "high",
+  medium: "normal",
+  low: "low",
+};
+
+const uiPriorityToApi: Record<Priority, string> = {
+  urgent: "Urgente",
+  high: "Alta",
+  normal: "Média",
+  low: "Baixa",
+};
+
+function taskFromApi(apiTask: ApiTask, index: number): Task {
+  const base = seedTasks[index % seedTasks.length];
+  const status = apiStatusToUi[apiTask.status ?? ""] ?? "todo";
+  const priority = apiPriorityToUi[apiTask.priority ?? ""] ?? "normal";
+  const areaTag = apiTask.area?.trim();
+  const isMeetingTask = Boolean(apiTask.meeting_id);
+  return {
+    ...base,
+    id: apiTask.id,
+    title: apiTask.title,
+    description: apiTask.description ?? "",
+    status,
+    priority,
+    assignees: apiTask.assignee ? [apiTask.assignee.slice(0, 2).toUpperCase()] : base.assignees,
+    tags: [isMeetingTask ? "reunião" : "", areaTag ?? ""].filter(Boolean),
+    startDate: apiTask.due_date ?? base.startDate,
+    dueDate: apiTask.due_date ?? base.dueDate,
+    storyPoints: apiTask.score ?? base.storyPoints,
+    list: apiTask.project?.trim() || (isMeetingTask ? "Reuniões" : "Sprint 24"),
+    space: isMeetingTask ? "Triade" : (apiTask.area?.trim() || "Product"),
+    folder: isMeetingTask ? "Memória da empresa" : base.folder,
+    dependencies: [],
+    comments: 0,
+    watchers: base.watchers,
+    subtasks: [],
+    checklists: isMeetingTask ? ["Validar decisão", "Executar próximo passo"] : [],
+    attachments: [],
+    customFields: { storyPoints: apiTask.score ?? base.storyPoints, environment: "-" },
+    timeEstimate: base.timeEstimate,
+    timeLogged: "0h",
+    meetingId: apiTask.meeting_id ?? null,
+  };
+}
+
+function taskToApiPayload(task: Task, options: { includeMeetingId?: boolean } = {}) {
+  const payload: Record<string, string | number | undefined> = {
+    title: task.title,
+    description: task.description,
+    status: uiStatusToApi[task.status],
+    priority: uiPriorityToApi[task.priority],
+    project: task.list,
+    area: task.tags[0] === "reunião" ? "Reuniões" : task.space,
+    due_date: task.dueDate,
+    score: task.storyPoints,
+  };
+  if (options.includeMeetingId) payload.meeting_id = task.meetingId ?? undefined;
+  return payload;
+}
+
+function shouldSyncPatch(patch: Partial<Task>) {
+  return ["title", "description", "status", "priority", "list", "space", "dueDate", "storyPoints", "meetingId"].some(
+    (key) => key in patch,
+  );
+}
+
+async function fetchApiTasks(): Promise<Task[] | null> {
+  const res = await fetch("/api/tasks?limit=500", { cache: "no-store" });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  if (!Array.isArray(data?.tasks)) return null;
+  return data.tasks.map((task: ApiTask, index: number) => taskFromApi(task, index));
+}
+
 export function TasksWorkspace() {
   const [tasks, setTasks] = useState<Task[]>(seedTasks);
   const [spaces, setSpaces] = useState<SpaceConfig[]>(defaultSpaces);
@@ -628,6 +751,32 @@ export function TasksWorkspace() {
       setTasks(loadStoredTasks());
       setSpaces(loadStoredSpaces());
       setHydrated(true);
+      fetchApiTasks()
+        .then((apiTasks) => {
+          if (apiTasks?.length) {
+            setTasks(apiTasks);
+            const hasMeetingsList = apiTasks.some((task) => task.list === "Reuniões");
+            if (hasMeetingsList && !apiTasks.some((task) => task.list === "Sprint 24")) {
+              setActiveList("Reuniões");
+            }
+            if (hasMeetingsList) {
+              setSpaces((current) =>
+                current.some((space) => space.lists.some((list) => list.name === "Reuniões"))
+                  ? current
+                  : [
+                      {
+                        id: "triade-meetings",
+                        name: "Triade",
+                        emoji: "✅",
+                        lists: [{ name: "Reuniões", marker: "text-emerald-500" }],
+                      },
+                      ...current,
+                    ],
+              );
+            }
+          }
+        })
+        .catch(() => undefined);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -656,13 +805,51 @@ export function TasksWorkspace() {
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
+  async function syncCreateTask(task: Task) {
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(taskToApiPayload(task, { includeMeetingId: true })),
+      });
+      if (!res.ok) return;
+      const saved = (await res.json()) as ApiTask;
+      setTasks((current) => current.map((item) => (item.id === task.id ? taskFromApi(saved, 0) : item)));
+      setSelectedTaskId(saved.id);
+    } catch {
+      // Local mode remains functional when auth/Supabase is unavailable.
+    }
+  }
+
+  async function syncPatchTask(task: Task, patch: Partial<Task>) {
+    if (!shouldSyncPatch(patch)) return;
+    if (task.id.startsWith("task-")) return;
+    try {
+      await fetch(`/api/tasks/${task.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(taskToApiPayload(task)),
+      });
+    } catch {
+      // Keep optimistic local edits; the UI must stay usable offline/demo.
+    }
+  }
+
   function patchTask(id: string, patch: Partial<Task>) {
-    setTasks((current) => current.map((task) => (task.id === id ? { ...task, ...patch } : task)));
+    setTasks((current) => {
+      const next = current.map((task) => (task.id === id ? { ...task, ...patch } : task));
+      const updated = next.find((task) => task.id === id);
+      if (updated) void syncPatchTask(updated, patch);
+      return next;
+    });
   }
 
   function deleteTask(id: string) {
     setTasks((current) => current.filter((task) => task.id !== id));
     setSelectedTaskId(null);
+    if (!id.startsWith("task-")) {
+      void fetch(`/api/tasks/${id}`, { method: "DELETE" }).catch(() => undefined);
+    }
   }
 
   function createSpace() {
@@ -721,6 +908,7 @@ export function TasksWorkspace() {
     };
     setTasks((current) => [task, ...current]);
     setSelectedTaskId(task.id);
+    void syncCreateTask(task);
   }
 
   function moveTask(id: string, status: StatusKey) {

@@ -109,6 +109,7 @@ export async function POST(
       area: item.area,
       status: "todo",
       creator_id: session.id,
+      user_id: session.id,
       ai_score: 70,
     }));
 

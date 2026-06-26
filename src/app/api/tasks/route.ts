@@ -49,6 +49,7 @@ const CreateTaskSchema = z.object({
   assignee: z.string().min(1).max(120).optional(),
   project: z.string().min(1).max(120).optional(),
   area: z.string().min(1).max(120).optional(),
+  meeting_id: z.string().uuid().optional(),
   due_date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "due_date deve ser YYYY-MM-DD.")
@@ -66,6 +67,7 @@ interface TaskRow {
   status: string;
   priority: string;
   area: string | null;
+  meeting_id: string | null;
   due_at: string | null;
   ai_score: number | null;
   created_at: string;
@@ -75,7 +77,7 @@ interface TaskRow {
 }
 
 const TASK_SELECT = `
-  id, title, description, status, priority, area, due_at, ai_score,
+  id, title, description, status, priority, area, meeting_id, due_at, ai_score,
   created_at, updated_at,
   assignee:profiles!tasks_assignee_id_fkey(full_name),
   project:projects(name)
@@ -93,13 +95,12 @@ function shapeTask(row: TaskRow) {
     id: row.id,
     title: row.title,
     description: row.description ?? "",
-    status: (TASK_STATUS_LABELS.find((label) => fromStatusLabel(label) === row.status)
-      ?? "Backlog") as TaskStatusLabel,
-    priority: (TASK_PRIORITY_LABELS.find((label) => fromPriorityLabel(label) === row.priority)
-      ?? "Média") as TaskPriorityLabel,
+    status: toStatusLabel(row.status),
+    priority: toPriorityLabel(row.priority),
     assignee: assignee?.full_name ?? "",
     project: project?.name ?? "",
     area: row.area ?? "",
+    meeting_id: row.meeting_id,
     due_date: row.due_at ? row.due_at.slice(0, 10) : null,
     score: row.ai_score ?? 0,
     created_at: row.created_at,
@@ -228,7 +229,8 @@ export async function POST(request: Request) {
         priority: body.priority ?? "Média",
         assignee: body.assignee ?? "",
         project: body.project ?? "",
-        area: body.area ?? "",
+    area: body.area ?? "",
+    meeting_id: body.meeting_id ?? null,
         due_date: body.due_date ?? null,
         score: body.score ?? 0,
         created_at: now,
@@ -258,6 +260,7 @@ export async function POST(request: Request) {
   const insertPayload = {
     organization_id: profile.organization_id as string,
     creator_id: session.id,
+    user_id: session.id,
     title: body.title.trim(),
     description: body.description ?? null,
     status: fromStatusLabel(body.status ?? "A Fazer"),
@@ -265,6 +268,7 @@ export async function POST(request: Request) {
     area: body.area ?? "Geral",
     assignee_id: assigneeId,
     project_id: projectId,
+    meeting_id: body.meeting_id ?? null,
     due_at: body.due_date ? `${body.due_date}T00:00:00Z` : null,
     ai_score: body.score ?? 0,
   };
@@ -277,6 +281,16 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(shapeTask(data as unknown as TaskRow), { status: 201 });
+}
+
+function toStatusLabel(value: string): TaskStatusLabel {
+  if ((TASK_STATUS_LABELS as readonly string[]).includes(value)) return value as TaskStatusLabel;
+  return (TASK_STATUS_LABELS.find((label) => fromStatusLabel(label) === value) ?? "Backlog") as TaskStatusLabel;
+}
+
+function toPriorityLabel(value: string | null): TaskPriorityLabel {
+  if (value && (TASK_PRIORITY_LABELS as readonly string[]).includes(value)) return value as TaskPriorityLabel;
+  return (TASK_PRIORITY_LABELS.find((label) => fromPriorityLabel(label) === value) ?? "Média") as TaskPriorityLabel;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
