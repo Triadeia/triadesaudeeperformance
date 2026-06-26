@@ -20,12 +20,15 @@ import {
   MoreHorizontal,
   PanelLeftClose,
   Paperclip,
+  Pause,
+  Play,
   Plus,
   Search,
   Settings,
   Sun,
   Table2,
   Timer,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -37,6 +40,7 @@ type GroupBy = "status" | "priority" | "assignee" | "none";
 
 type Subtask = { id: string; title: string; done: boolean; assignee: string };
 type CustomFields = { storyPoints: number; environment: "Dev" | "Staging" | "Production" | "-" };
+type SpaceConfig = { id: string; name: string; emoji: string; lists: Array<{ name: string; marker: string }> };
 type Task = {
   id: string;
   title: string;
@@ -56,12 +60,14 @@ type Task = {
   watchers: string[];
   subtasks: Subtask[];
   checklists: string[];
+  attachments?: string[];
   customFields: CustomFields;
   timeEstimate: string;
   timeLogged: string;
 };
 
 const STORAGE_KEY = "triade:open-clickup:complete:v1";
+const SPACES_STORAGE_KEY = "triade:open-clickup:spaces:v1";
 
 const people: Record<string, { name: string; color: string }> = {
   SC: { name: "Santiago Cotto", color: "bg-violet-500" },
@@ -84,6 +90,40 @@ const priorityConfig: Record<Priority, { label: string; color: string; text: str
   normal: { label: "NORMAL", color: "text-blue-400", text: "text-blue-500" },
   low: { label: "LOW", color: "text-slate-400", text: "text-slate-500" },
 };
+
+const defaultSpaces: SpaceConfig[] = [
+  {
+    id: "product",
+    name: "Product",
+    emoji: "🚀",
+    lists: [
+      { name: "Sprint 24", marker: "text-violet-500" },
+      { name: "Backlog", marker: "text-orange-500" },
+      { name: "Roadmap", marker: "text-emerald-500" },
+    ],
+  },
+  {
+    id: "marketing",
+    name: "Marketing",
+    emoji: "🌄",
+    lists: [
+      { name: "Campaigns", marker: "text-pink-500" },
+      { name: "Content Calendar", marker: "text-sky-500" },
+    ],
+  },
+  {
+    id: "engineering",
+    name: "Engineering",
+    emoji: "⚙️",
+    lists: [{ name: "Infra", marker: "text-sky-500" }],
+  },
+  {
+    id: "design",
+    name: "Design",
+    emoji: "🎯",
+    lists: [{ name: "Mockups", marker: "text-violet-500" }],
+  },
+];
 
 const seedTasks: Task[] = [
   {
@@ -455,6 +495,7 @@ function normalizeTask(value: unknown, index: number): Task {
   const watchers = stringArray(raw.watchers);
   const dependencies = stringArray(raw.dependencies);
   const checklists = stringArray(raw.checklists);
+  const attachments = stringArray(raw.attachments);
   const subtasks = Array.isArray(raw.subtasks)
     ? (raw.subtasks as unknown[])
         .filter((item): item is Partial<Subtask> & Record<string, unknown> => Boolean(item) && typeof item === "object")
@@ -498,10 +539,34 @@ function normalizeTask(value: unknown, index: number): Task {
     watchers,
     subtasks,
     checklists,
+    attachments,
     customFields: { storyPoints, environment },
     timeEstimate: typeof raw.timeEstimate === "string" ? raw.timeEstimate : base.timeEstimate,
     timeLogged: typeof raw.timeLogged === "string" ? raw.timeLogged : base.timeLogged,
   };
+}
+
+function normalizeSpaces(value: unknown): SpaceConfig[] {
+  if (!Array.isArray(value)) return defaultSpaces;
+  const spaces = value
+    .filter((item): item is Partial<SpaceConfig> & Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((space, index) => {
+      const lists = Array.isArray(space.lists)
+        ? (space.lists as unknown[])
+            .filter((list): list is { name?: unknown; marker?: unknown } => Boolean(list) && typeof list === "object")
+            .map((list) => ({
+              name: typeof list.name === "string" && list.name.trim() ? list.name : "Nova lista",
+              marker: typeof list.marker === "string" && list.marker ? list.marker : "text-violet-500",
+            }))
+        : [];
+      return {
+        id: typeof space.id === "string" && space.id ? space.id : `space-${index}`,
+        name: typeof space.name === "string" && space.name.trim() ? space.name : "Novo space",
+        emoji: typeof space.emoji === "string" && space.emoji ? space.emoji : "🧩",
+        lists: lists.length > 0 ? lists : [{ name: "Lista principal", marker: "text-violet-500" }],
+      };
+    });
+  return spaces.length > 0 ? spaces : defaultSpaces;
 }
 
 function loadStoredTasks(): Task[] {
@@ -517,8 +582,34 @@ function loadStoredTasks(): Task[] {
   }
 }
 
+function loadStoredSpaces(): SpaceConfig[] {
+  try {
+    const raw = window.localStorage.getItem(SPACES_STORAGE_KEY);
+    if (!raw) return defaultSpaces;
+    return normalizeSpaces(JSON.parse(raw));
+  } catch {
+    return defaultSpaces;
+  }
+}
+
+function minutesFromTime(value: string) {
+  const hours = Number(value.match(/(\d+(?:\.\d+)?)h/)?.[1] ?? 0);
+  const minutes = Number(value.match(/(\d+)m/)?.[1] ?? 0);
+  return Math.round(hours * 60 + minutes);
+}
+
+function timeFromMinutes(total: number) {
+  const safe = Math.max(0, Math.round(total));
+  const hours = Math.floor(safe / 60);
+  const minutes = safe % 60;
+  if (hours && minutes) return `${hours}h ${minutes}m`;
+  if (hours) return `${hours}h`;
+  return `${minutes}m`;
+}
+
 export function TasksWorkspace() {
   const [tasks, setTasks] = useState<Task[]>(seedTasks);
+  const [spaces, setSpaces] = useState<SpaceConfig[]>(defaultSpaces);
   const [hydrated, setHydrated] = useState(false);
   const [view, setView] = useState<ViewMode>("list");
   const [activeList, setActiveList] = useState("Sprint 24");
@@ -529,10 +620,13 @@ export function TasksWorkspace() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [filterPriority, setFilterPriority] = useState<Priority | "all">("all");
   const [sortBy, setSortBy] = useState<"manual" | "due" | "priority">("manual");
+  const [noticeOpen, setNoticeOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setTasks(loadStoredTasks());
+      setSpaces(loadStoredSpaces());
       setHydrated(true);
     }, 0);
     return () => window.clearTimeout(timer);
@@ -541,7 +635,8 @@ export function TasksWorkspace() {
   useEffect(() => {
     if (!hydrated) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-  }, [hydrated, tasks]);
+    window.localStorage.setItem(SPACES_STORAGE_KEY, JSON.stringify(spaces));
+  }, [hydrated, spaces, tasks]);
 
   const visibleTasks = useMemo(() => {
     const searched = tasks.filter((task) => {
@@ -565,7 +660,40 @@ export function TasksWorkspace() {
     setTasks((current) => current.map((task) => (task.id === id ? { ...task, ...patch } : task)));
   }
 
+  function deleteTask(id: string) {
+    setTasks((current) => current.filter((task) => task.id !== id));
+    setSelectedTaskId(null);
+  }
+
+  function createSpace() {
+    const name = window.prompt("Nome do novo space");
+    if (!name?.trim()) return;
+    const listName = window.prompt("Primeira lista", "Lista principal") ?? "Lista principal";
+    const space: SpaceConfig = {
+      id: `space-${Date.now()}`,
+      name: name.trim(),
+      emoji: "🧩",
+      lists: [{ name: listName.trim() || "Lista principal", marker: "text-violet-500" }],
+    };
+    setSpaces((current) => [...current, space]);
+    setActiveList(space.lists[0].name);
+  }
+
+  function createList(spaceId: string) {
+    const name = window.prompt("Nome da nova lista");
+    if (!name?.trim()) return;
+    setSpaces((current) =>
+      current.map((space) =>
+        space.id === spaceId
+          ? { ...space, lists: [...space.lists, { name: name.trim(), marker: "text-violet-500" }] }
+          : space,
+      ),
+    );
+    setActiveList(name.trim());
+  }
+
   function createTask(status: StatusKey = "todo") {
+    const activeSpace = spaces.find((space) => space.lists.some((list) => list.name === activeList));
     const task: Task = {
       ...seedTasks[0],
       id: `task-${Date.now()}`,
@@ -579,13 +707,14 @@ export function TasksWorkspace() {
       dueDate: "2026-06-26",
       storyPoints: 1,
       list: activeList,
-      space: activeList === "Infra" ? "Engineering" : activeList === "Mockups" ? "Design" : "Product",
+      space: activeSpace?.name ?? "Product",
       folder: activeList === "Sprint 24" ? "Sprints" : undefined,
       dependencies: [],
       comments: 0,
       watchers: ["SC"],
       subtasks: [],
       checklists: [],
+      attachments: [],
       customFields: { storyPoints: 1, environment: "-" },
       timeEstimate: "1h",
       timeLogged: "0h",
@@ -617,8 +746,11 @@ export function TasksWorkspace() {
     <div className={cls("fixed inset-0 z-[80] flex overflow-hidden bg-white text-[#1d2129]", dark && "dark bg-[#1a1c23] text-[#e6e8ec]")}>
       <aside className="flex w-[260px] shrink-0 flex-col border-r border-[#e8eaed] bg-[#fafbfc] dark:border-[#2a2e38] dark:bg-[#15171d]">
         <div className="flex h-[52px] items-center gap-2 border-b border-[#e8eaed] px-4 dark:border-[#2a2e38]">
-          <div className="grid size-6 place-items-center rounded-md bg-[#7b68ee] text-sm font-bold text-white">A</div>
-          <span className="font-semibold">Acme Inc.</span>
+          <div className="grid size-7 place-items-center rounded-md bg-[#041827] text-[11px] font-black tracking-tight text-emerald-300">TSP</div>
+          <div className="min-w-0">
+            <span className="block truncate font-semibold">Triade TSP</span>
+            <span className="block truncate text-[11px] text-slate-500">Saúde & Performance</span>
+          </div>
           <ChevronDown className="ml-auto size-4 text-slate-400" />
           <PanelLeftClose className="size-4 text-slate-400" />
         </div>
@@ -636,29 +768,21 @@ export function TasksWorkspace() {
         </nav>
         <div className="flex-1 overflow-y-auto px-2 py-3 text-sm">
           <div className="mb-2 flex items-center justify-between px-2 text-[11px] font-medium uppercase text-slate-400">
-            Spaces <Plus className="size-4" />
+            Spaces <button onClick={createSpace} title="Add space" className="rounded p-1 hover:bg-[#eceef1] dark:hover:bg-[#262a34]"><Plus className="size-4" /></button>
           </div>
-          <Space name="Product" emoji="🚀" open>
-            <FolderLink name="Sprints" active={activeList === "Sprint 24"} onClick={() => setActiveList("Sprint 24")} />
-            <FolderLink name="Backlog" active={activeList === "Backlog"} onClick={() => setActiveList("Backlog")} marker="text-orange-500" />
-            <FolderLink name="Roadmap" active={activeList === "Roadmap"} onClick={() => setActiveList("Roadmap")} marker="text-emerald-500" />
-          </Space>
-          <Space name="Marketing" emoji="🌄" open>
-            <FolderLink name="Campaigns" active={activeList === "Campaigns"} onClick={() => setActiveList("Campaigns")} marker="text-pink-500" />
-            <FolderLink name="Content Calendar" active={activeList === "Content Calendar"} onClick={() => setActiveList("Content Calendar")} marker="text-sky-500" />
-          </Space>
-          <Space name="Engineering" emoji="⚙️" open>
-            <FolderLink name="Infra" active={activeList === "Infra"} onClick={() => setActiveList("Infra")} marker="text-sky-500" />
-          </Space>
-          <Space name="Design" emoji="🎯" open>
-            <FolderLink name="Mockups" active={activeList === "Mockups"} onClick={() => setActiveList("Mockups")} marker="text-violet-500" />
-          </Space>
+          {spaces.map((space) => (
+            <Space key={space.id} name={space.name} emoji={space.emoji} open onAddList={() => createList(space.id)}>
+              {space.lists.map((list) => (
+                <FolderLink key={`${space.id}-${list.name}`} name={list.name} active={activeList === list.name} onClick={() => setActiveList(list.name)} marker={list.marker} />
+              ))}
+            </Space>
+          ))}
         </div>
         <div className="flex items-center gap-2 border-t border-[#e8eaed] p-3 dark:border-[#2a2e38]">
           <Avatar id={dark ? "MC" : "SC"} size="md" />
           <span className="truncate text-sm">{dark ? "Maya Chen" : "Santiago Cotto"}</span>
-          <button className="ml-auto rounded p-1.5 text-slate-500 hover:bg-[#eceef1] dark:hover:bg-[#262a34]"><Bell className="size-4" /></button>
-          <button className="rounded p-1.5 text-slate-500 hover:bg-[#eceef1] dark:hover:bg-[#262a34]"><Settings className="size-4" /></button>
+          <button onClick={() => setNoticeOpen(true)} className="ml-auto rounded p-1.5 text-slate-500 hover:bg-[#eceef1] dark:hover:bg-[#262a34]"><Bell className="size-4" /></button>
+          <button onClick={() => setSettingsOpen(true)} className="rounded p-1.5 text-slate-500 hover:bg-[#eceef1] dark:hover:bg-[#262a34]"><Settings className="size-4" /></button>
         </div>
       </aside>
 
@@ -666,7 +790,7 @@ export function TasksWorkspace() {
         <header className="border-b border-[#e8eaed] dark:border-[#2a2e38]">
           <div className="flex items-center gap-2 px-4 pt-3 text-sm text-slate-500">
             <span className="grid size-4 place-items-center rounded bg-[#7b68ee] text-[10px] text-white">🚀</span>
-            Product {activeList === "Sprint 24" ? <span>/ Sprints</span> : null}
+            {spaces.find((space) => space.lists.some((list) => list.name === activeList))?.name ?? "Triade"} {activeList === "Sprint 24" ? <span>/ Sprints</span> : null}
           </div>
           <div className="flex items-center px-4 py-1">
             <h1 className="text-xl font-semibold">{activeList}</h1>
@@ -748,7 +872,9 @@ export function TasksWorkspace() {
           }}
         />
       ) : null}
-      {selectedTask ? <TaskModal task={selectedTask} onClose={() => setSelectedTaskId(null)} onPatch={patchTask} /> : null}
+      {selectedTask ? <TaskModal task={selectedTask} onClose={() => setSelectedTaskId(null)} onPatch={patchTask} onDelete={deleteTask} /> : null}
+      {noticeOpen ? <PanelModal title="Notifications" onClose={() => setNoticeOpen(false)}><NotificationList tasks={tasks} /></PanelModal> : null}
+      {settingsOpen ? <PanelModal title="Workspace settings" onClose={() => setSettingsOpen(false)}><SettingsPanel spaces={spaces} tasks={tasks} onReset={() => { setTasks(seedTasks); setSpaces(defaultSpaces); setActiveList("Sprint 24"); }} /></PanelModal> : null}
     </div>
   );
 }
@@ -763,13 +889,14 @@ function SidebarLink({ icon, label, active, badge, onClick }: { icon: React.Reac
   );
 }
 
-function Space({ name, emoji, open, children }: { name: string; emoji: string; open?: boolean; children: React.ReactNode }) {
+function Space({ name, emoji, open, children, onAddList }: { name: string; emoji: string; open?: boolean; children: React.ReactNode; onAddList?: () => void }) {
   return (
     <div className="mb-2">
       <div className="flex h-8 items-center gap-2 rounded px-2 font-semibold">
         {open ? <ChevronDown className="size-3 text-slate-400" /> : <ChevronRight className="size-3 text-slate-400" />}
         <span className="grid size-5 place-items-center rounded bg-[#f1effd]">{emoji}</span>
         {name}
+        <button onClick={onAddList} title="Add list" className="ml-auto rounded p-1 text-slate-400 hover:bg-[#eceef1] hover:text-[#7b68ee] dark:hover:bg-[#262a34]"><Plus className="size-3" /></button>
       </div>
       <div className="ml-5 space-y-1">{children}</div>
     </div>
@@ -977,12 +1104,38 @@ function CommandPalette({ tasks, onClose, onOpenTask }: { tasks: Task[]; onClose
   );
 }
 
-function TaskModal({ task, onClose, onPatch }: { task: Task; onClose: () => void; onPatch: (id: string, patch: Partial<Task>) => void }) {
+function TaskModal({ task, onClose, onPatch, onDelete }: { task: Task; onClose: () => void; onPatch: (id: string, patch: Partial<Task>) => void; onDelete: (id: string) => void }) {
+  const [timerRunning, setTimerRunning] = useState(false);
+
+  useEffect(() => {
+    if (!timerRunning) return;
+    const interval = window.setInterval(() => {
+      onPatch(task.id, { timeLogged: timeFromMinutes(minutesFromTime(task.timeLogged) + 1) });
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [onPatch, task.id, task.timeLogged, timerRunning]);
+
+  function addChecklistItem() {
+    const title = window.prompt("Checklist item", "New checklist");
+    if (!title?.trim()) return;
+    onPatch(task.id, { checklists: [...(task.checklists ?? []), title.trim()] });
+  }
+
+  function addSubtask() {
+    const title = window.prompt("Subtask title", "New subtask");
+    if (!title?.trim()) return;
+    onPatch(task.id, { subtasks: [...(task.subtasks ?? []), { id: `sub-${Date.now()}`, title: title.trim(), done: false, assignee: (task.assignees ?? [])[0] ?? "SC" }] });
+  }
+
+  function confirmDelete() {
+    if (window.confirm(`Excluir tarefa "${task.title}"?`)) onDelete(task.id);
+  }
+
   return (
     <div className="fixed inset-0 z-[110] grid place-items-center bg-black/45 p-8">
       <div className="flex max-h-[90vh] w-full max-w-[1080px] overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-[#20232c]">
         <div className="min-w-0 flex-1 overflow-y-auto p-6">
-          <div className="mb-8 flex items-center gap-2"><span className={cls("rounded px-2 py-0.5 text-[11px] font-bold", statusConfig[task.status].badge)}>{statusConfig[task.status].label}</span><span className="text-sm text-slate-500">in {task.list}</span></div>
+          <div className="mb-8 flex items-center gap-2"><span className={cls("rounded px-2 py-0.5 text-[11px] font-bold", statusConfig[task.status].badge)}>{statusConfig[task.status].label}</span><span className="text-sm text-slate-500">in {task.list}</span><button onClick={confirmDelete} className="ml-auto flex h-8 items-center gap-2 rounded px-3 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"><Trash2 className="size-4" /> Delete</button></div>
           <input value={task.title} onChange={(event) => onPatch(task.id, { title: event.target.value })} className="mb-5 w-full bg-transparent text-2xl font-bold outline-none" />
           <div className="mb-6">
             <div className="mb-2 flex items-center gap-2 text-sm text-slate-500"><List className="size-4" /> Description</div>
@@ -993,44 +1146,117 @@ function TaskModal({ task, onClose, onPatch }: { task: Task; onClose: () => void
             <div className="overflow-hidden rounded-lg border border-[#e8eaed] dark:border-[#2a2e38]">
               {(task.subtasks ?? []).map((subtask) => (
                 <div key={subtask.id} className="flex h-9 items-center gap-3 border-b border-[#e8eaed] px-3 last:border-b-0 dark:border-[#2a2e38]">
-                  {subtask.done ? <StatusDot status="complete" /> : <StatusDot status="progress" />}
+                  <button onClick={() => onPatch(task.id, { subtasks: (task.subtasks ?? []).map((item) => item.id === subtask.id ? { ...item, done: !item.done } : item) })}>{subtask.done ? <StatusDot status="complete" /> : <StatusDot status="progress" />}</button>
                   <span className="text-sm">{subtask.title}</span>
                   <span className="ml-auto"><Avatar id={subtask.assignee} /></span>
                 </div>
               ))}
-              <button onClick={() => onPatch(task.id, { subtasks: [...(task.subtasks ?? []), { id: `sub-${Date.now()}`, title: "New subtask", done: false, assignee: "SC" }] })} className="flex h-9 items-center gap-2 px-3 text-sm text-slate-400 hover:text-[#7b68ee]"><Plus className="size-4" /> Add a subtask</button>
+              <button onClick={addSubtask} className="flex h-9 items-center gap-2 px-3 text-sm text-slate-400 hover:text-[#7b68ee]"><Plus className="size-4" /> Add a subtask</button>
             </div>
           </section>
           <section className="mb-6">
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Check className="size-4" /> Checklists</h3>
-            <button onClick={() => onPatch(task.id, { checklists: [...(task.checklists ?? []), "New checklist"] })} className="flex h-9 items-center gap-2 text-sm text-slate-400 hover:text-[#7b68ee]"><Plus className="size-4" /> Add checklist</button>
+            <div className="overflow-hidden rounded-lg border border-[#e8eaed] dark:border-[#2a2e38]">
+              {(task.checklists ?? []).map((item, index) => (
+                <div key={`${item}-${index}`} className="flex h-9 items-center gap-3 border-b border-[#e8eaed] px-3 last:border-b-0 dark:border-[#2a2e38]">
+                  <Check className="size-4 text-emerald-500" />
+                  <span className="text-sm">{item}</span>
+                  <button onClick={() => onPatch(task.id, { checklists: (task.checklists ?? []).filter((_, itemIndex) => itemIndex !== index) })} className="ml-auto text-slate-400 hover:text-red-500"><X className="size-4" /></button>
+                </div>
+              ))}
+              <button onClick={addChecklistItem} className="flex h-9 items-center gap-2 px-3 text-sm text-slate-400 hover:text-[#7b68ee]"><Plus className="size-4" /> Add checklist</button>
+            </div>
           </section>
           <section className="mb-6">
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Paperclip className="size-4" /> Attachments</h3>
-            <div className="grid h-20 place-items-center rounded-lg border border-dashed border-[#e8eaed] text-sm text-slate-400 dark:border-[#2a2e38]"><Paperclip className="size-4" />Drop files or click to upload</div>
+            <label className="grid min-h-20 cursor-pointer place-items-center rounded-lg border border-dashed border-[#e8eaed] p-4 text-sm text-slate-400 hover:border-[#7b68ee] dark:border-[#2a2e38]">
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  const names = Array.from(event.target.files ?? []).map((file) => file.name);
+                  if (names.length) onPatch(task.id, { attachments: [...(task.attachments ?? []), ...names] });
+                  event.currentTarget.value = "";
+                }}
+              />
+              <Paperclip className="size-4" /> Drop files or click to upload
+            </label>
+            {(task.attachments ?? []).length ? <div className="mt-2 space-y-1">{(task.attachments ?? []).map((file, index) => <div key={`${file}-${index}`} className="flex h-8 items-center gap-2 rounded bg-[#fafbfc] px-3 text-sm dark:bg-[#15171d]"><Paperclip className="size-4 text-slate-400" />{file}<button onClick={() => onPatch(task.id, { attachments: (task.attachments ?? []).filter((_, fileIndex) => fileIndex !== index) })} className="ml-auto text-slate-400 hover:text-red-500"><X className="size-4" /></button></div>)}</div> : null}
           </section>
           <section>
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Timer className="size-4" /> Time tracking</h3>
-            <div className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-lg bg-[#fafbfc] p-3 dark:bg-[#15171d]"><span className="block text-xs text-slate-400">LOGGED</span>{task.timeLogged}</div><div className="rounded-lg bg-[#fafbfc] p-3 dark:bg-[#15171d]"><span className="block text-xs text-slate-400">ESTIMATE</span>{task.timeEstimate}</div></div>
+            <div className="grid grid-cols-[1fr_1fr_auto] gap-3 text-sm">
+              <label className="rounded-lg bg-[#fafbfc] p-3 dark:bg-[#15171d]"><span className="block text-xs text-slate-400">LOGGED</span><input value={task.timeLogged} onChange={(event) => onPatch(task.id, { timeLogged: event.target.value })} className="w-full bg-transparent outline-none" /></label>
+              <label className="rounded-lg bg-[#fafbfc] p-3 dark:bg-[#15171d]"><span className="block text-xs text-slate-400">ESTIMATE</span><input value={task.timeEstimate} onChange={(event) => onPatch(task.id, { timeEstimate: event.target.value })} className="w-full bg-transparent outline-none" /></label>
+              <button onClick={() => setTimerRunning((value) => !value)} className={cls("grid size-12 place-items-center self-end rounded-lg text-white", timerRunning ? "bg-red-500" : "bg-[#7b68ee]")}>{timerRunning ? <Pause className="size-5" /> : <Play className="size-5" />}</button>
+            </div>
           </section>
         </div>
         <aside className="w-[320px] shrink-0 border-l border-[#e8eaed] bg-[#fafbfc] p-6 dark:border-[#2a2e38] dark:bg-[#1f222b]">
           <div className="mb-8 flex justify-end gap-2"><MoreHorizontal className="size-4 text-slate-400" /><Columns3 className="size-4 text-slate-400" /><button onClick={onClose}><X className="size-4 text-slate-400" /></button></div>
           <MetaRow label="Assignees"><span className="flex -space-x-2">{(task.assignees ?? []).map((id) => <Avatar key={id} id={id} size="md" />)}</span></MetaRow>
-          <MetaRow label="Due date"><span className="text-orange-500">{todayLabel(task.dueDate)}</span></MetaRow>
-          <MetaRow label="Start date"><span className="text-red-500">{todayLabel(task.startDate)}</span></MetaRow>
-          <MetaRow label="Priority"><PriorityFlag priority={task.priority} /></MetaRow>
+          <MetaRow label="Due date"><input type="date" value={task.dueDate} onChange={(event) => onPatch(task.id, { dueDate: event.target.value })} className="rounded bg-transparent text-orange-500 outline-none" /></MetaRow>
+          <MetaRow label="Start date"><input type="date" value={task.startDate} onChange={(event) => onPatch(task.id, { startDate: event.target.value })} className="rounded bg-transparent text-red-500 outline-none" /></MetaRow>
+          <MetaRow label="Priority"><select value={task.priority} onChange={(event) => onPatch(task.id, { priority: event.target.value as Priority })} className="rounded bg-transparent outline-none">{(Object.keys(priorityConfig) as Priority[]).map((priority) => <option key={priority} value={priority}>{priorityConfig[priority].label}</option>)}</select></MetaRow>
           <MetaRow label="Recurring"><span className="text-slate-500">Doesn&apos;t repeat</span></MetaRow>
           <MetaRow label="Tags"><span className="flex flex-wrap gap-1">{(task.tags ?? []).map((tag) => <Tag key={tag}>{tag}</Tag>)}</span></MetaRow>
           <MetaRow label="Watchers"><span className="flex -space-x-2">{(task.watchers ?? []).map((id) => <Avatar key={id} id={id} />)}</span></MetaRow>
           <div className="my-5 border-t border-[#e8eaed] pt-5 dark:border-[#2a2e38]">
             <p className="mb-4 text-xs font-semibold text-slate-500">CUSTOM FIELDS</p>
-            <MetaRow label="Story Points">{task.storyPoints ?? 0}</MetaRow>
-            <MetaRow label="Environment"><span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-500 dark:bg-blue-500/15">{task.customFields?.environment ?? "-"}</span></MetaRow>
+            <MetaRow label="Story Points"><input type="number" min={0} value={task.storyPoints ?? 0} onChange={(event) => onPatch(task.id, { storyPoints: Number(event.target.value), customFields: { ...(task.customFields ?? { environment: "-" }), storyPoints: Number(event.target.value) } })} className="w-16 rounded bg-transparent outline-none" /></MetaRow>
+            <MetaRow label="Environment"><select value={task.customFields?.environment ?? "-"} onChange={(event) => onPatch(task.id, { customFields: { storyPoints: task.storyPoints ?? 0, environment: event.target.value as CustomFields["environment"] } })} className="rounded bg-transparent outline-none"><option value="-">-</option><option value="Dev">Dev</option><option value="Staging">Staging</option><option value="Production">Production</option></select></MetaRow>
           </div>
           <div className="border-t border-[#e8eaed] pt-5 text-xs text-slate-500 dark:border-[#2a2e38]">Created by Santiago Cotto<br />Jun 7, 2026</div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function PanelModal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[115] bg-black/30" onClick={onClose}>
+      <div onClick={(event) => event.stopPropagation()} className="absolute bottom-5 left-5 top-5 w-[420px] overflow-hidden rounded-xl border border-[#e8eaed] bg-white shadow-2xl dark:border-[#2a2e38] dark:bg-[#20232c]">
+        <div className="flex h-12 items-center justify-between border-b border-[#e8eaed] px-4 dark:border-[#2a2e38]">
+          <h2 className="font-semibold">{title}</h2>
+          <button onClick={onClose} className="rounded p-1.5 text-slate-400 hover:bg-[#f4f5f7] dark:hover:bg-[#262a34]"><X className="size-4" /></button>
+        </div>
+        <div className="max-h-[calc(100vh-7rem)] overflow-auto p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function NotificationList({ tasks }: { tasks: Task[] }) {
+  const urgent = tasks.filter((task) => task.priority === "urgent" || todayLabel(task.dueDate) === "Today" || todayLabel(task.dueDate) === "Tomorrow").slice(0, 8);
+  return (
+    <div className="space-y-2">
+      {urgent.map((task) => (
+        <div key={task.id} className="rounded-lg border border-[#e8eaed] p-3 text-sm dark:border-[#2a2e38]">
+          <div className="mb-1 flex items-center gap-2 font-medium"><StatusDot status={task.status} />{task.title}</div>
+          <div className="flex items-center justify-between text-xs text-slate-500"><span>{priorityConfig[task.priority].label}</span><span>{todayLabel(task.dueDate)}</span></div>
+        </div>
+      ))}
+      {!urgent.length ? <div className="rounded-lg border border-dashed border-[#e8eaed] p-6 text-center text-sm text-slate-500 dark:border-[#2a2e38]">No notifications</div> : null}
+    </div>
+  );
+}
+
+function SettingsPanel({ spaces, tasks, onReset }: { spaces: SpaceConfig[]; tasks: Task[]; onReset: () => void }) {
+  return (
+    <div className="space-y-4 text-sm">
+      <div className="rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
+        <div className="mb-2 font-medium">Workspace</div>
+        <div className="text-slate-500">Spaces: {spaces.length}</div>
+        <div className="text-slate-500">Lists: {spaces.reduce((total, space) => total + space.lists.length, 0)}</div>
+        <div className="text-slate-500">Tasks: {tasks.length}</div>
+      </div>
+      <div className="rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
+        <div className="mb-2 font-medium">Persistence</div>
+        <div className="text-slate-500">Changes save automatically in this browser.</div>
+      </div>
+      <button onClick={() => window.confirm("Reset workspace data?") && onReset()} className="flex h-9 w-full items-center justify-center rounded bg-red-500 text-white hover:bg-red-600">Reset workspace</button>
     </div>
   );
 }
