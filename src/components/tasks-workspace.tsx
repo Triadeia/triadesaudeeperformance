@@ -42,6 +42,14 @@ type AppTheme = "light" | "dark" | "navy";
 type Subtask = { id: string; title: string; done: boolean; assignee: string };
 type CustomFields = { storyPoints: number; environment: "Dev" | "Staging" | "Production" | "-" };
 type SpaceConfig = { id: string; name: string; emoji: string; lists: Array<{ name: string; marker: string }> };
+type WorkspaceConfig = {
+  spaces: SpaceConfig[];
+  activeList?: string;
+  view?: ViewMode;
+  groupBy?: GroupBy;
+  filterPriority?: Priority | "all";
+  sortBy?: "manual" | "due" | "priority";
+};
 type Task = {
   id: string;
   title: string;
@@ -80,6 +88,7 @@ type ApiTask = {
   meeting_id?: string | null;
   due_date?: string | null;
   score?: number | null;
+  workspace_meta?: Record<string, unknown> | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -505,6 +514,10 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function firstString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
 function normalizeTask(value: unknown, index: number): Task {
   const base = seedTasks[index % seedTasks.length];
   if (!value || typeof value !== "object") return { ...base };
@@ -588,6 +601,27 @@ function normalizeSpaces(value: unknown): SpaceConfig[] {
       };
     });
   return spaces.length > 0 ? spaces : defaultSpaces;
+}
+
+function normalizeWorkspaceConfig(value: unknown): WorkspaceConfig | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<WorkspaceConfig> & Record<string, unknown>;
+  const spaces = normalizeSpaces(raw.spaces);
+  return {
+    spaces,
+    activeList: typeof raw.activeList === "string" && raw.activeList ? raw.activeList : undefined,
+    view: raw.view === "list" || raw.view === "board" || raw.view === "calendar" || raw.view === "gantt" || raw.view === "table" ? raw.view : undefined,
+    groupBy: raw.groupBy === "status" || raw.groupBy === "priority" || raw.groupBy === "assignee" || raw.groupBy === "none" ? raw.groupBy : undefined,
+    filterPriority:
+      raw.filterPriority === "all" ||
+      raw.filterPriority === "urgent" ||
+      raw.filterPriority === "high" ||
+      raw.filterPriority === "normal" ||
+      raw.filterPriority === "low"
+        ? raw.filterPriority
+        : undefined,
+    sortBy: raw.sortBy === "manual" || raw.sortBy === "due" || raw.sortBy === "priority" ? raw.sortBy : undefined,
+  };
 }
 
 function loadStoredTasks(): Task[] {
@@ -689,40 +723,41 @@ const uiPriorityToApi: Record<Priority, string> = {
 
 function taskFromApi(apiTask: ApiTask, index: number): Task {
   const base = seedTasks[index % seedTasks.length];
+  const meta = apiTask.workspace_meta && typeof apiTask.workspace_meta === "object" ? apiTask.workspace_meta : {};
   const status = apiStatusToUi[apiTask.status ?? ""] ?? "todo";
   const priority = apiPriorityToUi[apiTask.priority ?? ""] ?? "normal";
   const areaTag = apiTask.area?.trim();
   const isMeetingTask = Boolean(apiTask.meeting_id);
-  return {
+  return normalizeTask({
     ...base,
     id: apiTask.id,
     title: apiTask.title,
     description: apiTask.description ?? "",
     status,
     priority,
-    assignees: apiTask.assignee ? [apiTask.assignee.slice(0, 2).toUpperCase()] : base.assignees,
-    tags: [isMeetingTask ? "reunião" : "", areaTag ?? ""].filter(Boolean),
-    startDate: apiTask.due_date ?? base.startDate,
+    assignees: stringArray(meta.assignees).length ? stringArray(meta.assignees) : apiTask.assignee ? [apiTask.assignee.slice(0, 2).toUpperCase()] : base.assignees,
+    tags: stringArray(meta.tags).length ? stringArray(meta.tags) : [isMeetingTask ? "reunião" : "", areaTag ?? ""].filter(Boolean),
+    startDate: firstString(meta.startDate) ?? apiTask.due_date ?? base.startDate,
     dueDate: apiTask.due_date ?? base.dueDate,
     storyPoints: apiTask.score ?? base.storyPoints,
-    list: apiTask.project?.trim() || (isMeetingTask ? "Reuniões" : "Sprint 24"),
-    space: isMeetingTask ? "Triade" : (apiTask.area?.trim() || "Product"),
-    folder: isMeetingTask ? "Memória da empresa" : base.folder,
-    dependencies: [],
-    comments: 0,
-    watchers: base.watchers,
-    subtasks: [],
-    checklists: isMeetingTask ? ["Validar decisão", "Executar próximo passo"] : [],
-    attachments: [],
-    customFields: { storyPoints: apiTask.score ?? base.storyPoints, environment: "-" },
-    timeEstimate: base.timeEstimate,
-    timeLogged: "0h",
+    list: firstString(meta.list) ?? (apiTask.project?.trim() || (isMeetingTask ? "Reuniões" : "Sprint 24")),
+    space: firstString(meta.space) ?? (isMeetingTask ? "Triade" : (apiTask.area?.trim() || "Product")),
+    folder: firstString(meta.folder) ?? (isMeetingTask ? "Memória da empresa" : base.folder),
+    dependencies: stringArray(meta.dependencies),
+    comments: typeof meta.comments === "number" ? meta.comments : 0,
+    watchers: stringArray(meta.watchers).length ? stringArray(meta.watchers) : base.watchers,
+    subtasks: Array.isArray(meta.subtasks) ? meta.subtasks : [],
+    checklists: stringArray(meta.checklists).length ? stringArray(meta.checklists) : isMeetingTask ? ["Validar decisão", "Executar próximo passo"] : [],
+    attachments: stringArray(meta.attachments),
+    customFields: meta.customFields && typeof meta.customFields === "object" ? meta.customFields : { storyPoints: apiTask.score ?? base.storyPoints, environment: "-" },
+    timeEstimate: firstString(meta.timeEstimate) ?? base.timeEstimate,
+    timeLogged: firstString(meta.timeLogged) ?? "0h",
     meetingId: apiTask.meeting_id ?? null,
-  };
+  }, index);
 }
 
 function taskToApiPayload(task: Task, options: { includeMeetingId?: boolean } = {}) {
-  const payload: Record<string, string | number | undefined> = {
+  const payload: Record<string, string | number | Record<string, unknown> | null | undefined> = {
     title: task.title,
     description: task.description,
     status: uiStatusToApi[task.status],
@@ -731,13 +766,56 @@ function taskToApiPayload(task: Task, options: { includeMeetingId?: boolean } = 
     area: task.tags[0] === "reunião" ? "Reuniões" : task.space,
     due_date: task.dueDate,
     score: task.storyPoints,
+    workspace_meta: {
+      assignees: task.assignees ?? [],
+      tags: task.tags ?? [],
+      startDate: task.startDate,
+      dueDate: task.dueDate,
+      storyPoints: task.storyPoints,
+      list: task.list,
+      space: task.space,
+      folder: task.folder ?? null,
+      dependencies: task.dependencies ?? [],
+      comments: task.comments ?? 0,
+      watchers: task.watchers ?? [],
+      subtasks: task.subtasks ?? [],
+      checklists: task.checklists ?? [],
+      attachments: task.attachments ?? [],
+      customFields: task.customFields ?? { storyPoints: task.storyPoints ?? 0, environment: "-" },
+      timeEstimate: task.timeEstimate,
+      timeLogged: task.timeLogged,
+      meetingId: task.meetingId ?? null,
+    },
   };
   if (options.includeMeetingId) payload.meeting_id = task.meetingId ?? undefined;
   return payload;
 }
 
 function shouldSyncPatch(patch: Partial<Task>) {
-  return ["title", "description", "status", "priority", "list", "space", "dueDate", "storyPoints", "meetingId"].some(
+  return [
+    "title",
+    "description",
+    "status",
+    "priority",
+    "assignees",
+    "tags",
+    "startDate",
+    "dueDate",
+    "storyPoints",
+    "list",
+    "space",
+    "folder",
+    "dependencies",
+    "comments",
+    "watchers",
+    "subtasks",
+    "checklists",
+    "attachments",
+    "customFields",
+    "timeEstimate",
+    "timeLogged",
+    "meetingId",
+  ].some(
     (key) => key in patch,
   );
 }
@@ -748,6 +826,21 @@ async function fetchApiTasks(): Promise<Task[] | null> {
   const data = await res.json().catch(() => null);
   if (!Array.isArray(data?.tasks)) return null;
   return data.tasks.map((task: ApiTask, index: number) => taskFromApi(task, index));
+}
+
+async function fetchWorkspaceConfig(): Promise<WorkspaceConfig | null> {
+  const res = await fetch("/api/tasks/workspace", { cache: "no-store" });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return normalizeWorkspaceConfig(data?.workspace);
+}
+
+async function saveWorkspaceConfig(config: WorkspaceConfig) {
+  await fetch("/api/tasks/workspace", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(config),
+  });
 }
 
 export function TasksWorkspace() {
@@ -798,6 +891,17 @@ export function TasksWorkspace() {
           }
         })
         .catch(() => undefined);
+      fetchWorkspaceConfig()
+        .then((workspace) => {
+          if (!workspace) return;
+          setSpaces(workspace.spaces);
+          if (workspace.activeList) setActiveList(workspace.activeList);
+          if (workspace.view) setView(workspace.view);
+          if (workspace.groupBy) setGroupBy(workspace.groupBy);
+          if (workspace.filterPriority) setFilterPriority(workspace.filterPriority);
+          if (workspace.sortBy) setSortBy(workspace.sortBy);
+        })
+        .catch(() => undefined);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -819,6 +923,14 @@ export function TasksWorkspace() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
     window.localStorage.setItem(SPACES_STORAGE_KEY, JSON.stringify(spaces));
   }, [hydrated, spaces, tasks]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const timer = window.setTimeout(() => {
+      void saveWorkspaceConfig({ spaces, activeList, view, groupBy, filterPriority, sortBy }).catch(() => undefined);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [activeList, filterPriority, groupBy, hydrated, sortBy, spaces, view]);
 
   const visibleTasks = useMemo(() => {
     const searched = tasks.filter((task) => {
@@ -1347,6 +1459,7 @@ function CommandPalette({ tasks, onClose, onOpenTask }: { tasks: Task[]; onClose
 
 function TaskModal({ task, onClose, onPatch, onDelete }: { task: Task; onClose: () => void; onPatch: (id: string, patch: Partial<Task>) => void; onDelete: (id: string) => void }) {
   const [timerRunning, setTimerRunning] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
 
   useEffect(() => {
     if (!timerRunning) return;
@@ -1370,6 +1483,33 @@ function TaskModal({ task, onClose, onPatch, onDelete }: { task: Task; onClose: 
 
   function confirmDelete() {
     if (window.confirm(`Excluir tarefa "${task.title}"?`)) onDelete(task.id);
+  }
+
+  async function uploadAttachments(files: FileList | null) {
+    const selected = Array.from(files ?? []);
+    if (!selected.length) return;
+    setUploadingAttachment(true);
+    const uploaded: string[] = [];
+    try {
+      for (const file of selected) {
+        const form = new FormData();
+        form.set("file", file);
+        form.set("title", `${task.title} - ${file.name}`);
+        form.set("documentType", "task_attachment");
+        const response = await fetch("/api/documents/upload", { method: "POST", body: form });
+        if (!response.ok) {
+          const data = await response.json().catch(() => null);
+          window.alert(data?.error ?? `Falha ao enviar ${file.name}`);
+          continue;
+        }
+        uploaded.push(file.name);
+      }
+      if (uploaded.length) onPatch(task.id, { attachments: [...(task.attachments ?? []), ...uploaded] });
+    } catch {
+      window.alert("Falha de conexão ao enviar anexo.");
+    } finally {
+      setUploadingAttachment(false);
+    }
   }
 
   return (
@@ -1416,12 +1556,11 @@ function TaskModal({ task, onClose, onPatch, onDelete }: { task: Task; onClose: 
                 multiple
                 className="hidden"
                 onChange={(event) => {
-                  const names = Array.from(event.target.files ?? []).map((file) => file.name);
-                  if (names.length) onPatch(task.id, { attachments: [...(task.attachments ?? []), ...names] });
+                  void uploadAttachments(event.target.files);
                   event.currentTarget.value = "";
                 }}
               />
-              <Paperclip className="size-4" /> Drop files or click to upload
+              <Paperclip className="size-4" /> {uploadingAttachment ? "Uploading..." : "Drop files or click to upload"}
             </label>
             {(task.attachments ?? []).length ? <div className="mt-2 space-y-1">{(task.attachments ?? []).map((file, index) => <div key={`${file}-${index}`} className="flex h-8 items-center gap-2 rounded bg-[#fafbfc] px-3 text-sm dark:bg-[#15171d]"><Paperclip className="size-4 text-slate-400" />{file}<button onClick={() => onPatch(task.id, { attachments: (task.attachments ?? []).filter((_, fileIndex) => fileIndex !== index) })} className="ml-auto text-slate-400 hover:text-red-500"><X className="size-4" /></button></div>)}</div> : null}
           </section>

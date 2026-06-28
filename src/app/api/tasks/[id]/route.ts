@@ -45,6 +45,7 @@ const UpdateTaskSchema = z
       .nullable()
       .optional(),
     score: z.number().int().min(0).max(100).optional(),
+    workspace_meta: z.record(z.string(), z.unknown()).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "Envie ao menos um campo para atualizar.",
@@ -62,6 +63,7 @@ interface TaskRow {
   meeting_id: string | null;
   due_at: string | null;
   ai_score: number | null;
+  workspace_meta?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   assignee: AssigneeJoin;
@@ -69,6 +71,14 @@ interface TaskRow {
 }
 
 const TASK_SELECT = `
+  id, title, description, status, priority, area, meeting_id, due_at, ai_score,
+  workspace_meta,
+  created_at, updated_at,
+  assignee:profiles!tasks_assignee_id_fkey(full_name),
+  project:projects(name)
+` as const;
+
+const TASK_SELECT_LEGACY = `
   id, title, description, status, priority, area, meeting_id, due_at, ai_score,
   created_at, updated_at,
   assignee:profiles!tasks_assignee_id_fkey(full_name),
@@ -95,9 +105,19 @@ function shapeTask(row: TaskRow) {
     meeting_id: row.meeting_id,
     due_date: row.due_at ? row.due_at.slice(0, 10) : null,
     score: row.ai_score ?? 0,
+    workspace_meta: row.workspace_meta ?? {},
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+function isMissingWorkspaceMeta(error: { code?: string; message?: string } | null): boolean {
+  return Boolean(
+    error &&
+      (error.code === "42703" ||
+        error.message?.includes("workspace_meta") ||
+        error.message?.includes("Could not find the 'workspace_meta' column")),
+  );
 }
 
 function toStatusLabel(value: string): TaskStatusLabel {
@@ -147,6 +167,7 @@ export async function PUT(
     patch.due_at = body.due_date ? `${body.due_date}T00:00:00Z` : null;
   }
   if (body.score !== undefined) patch.ai_score = body.score;
+  if (body.workspace_meta !== undefined) patch.workspace_meta = body.workspace_meta;
   if (body.assignee !== undefined) {
     patch.assignee_id = body.assignee
       ? await resolveProfileId(supabase, body.assignee)
@@ -158,12 +179,25 @@ export async function PUT(
       : null;
   }
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("tasks")
     .update(patch)
     .eq("id", id)
     .select(TASK_SELECT)
     .single();
+
+  if (isMissingWorkspaceMeta(error)) {
+    const legacyPatch = { ...patch };
+    delete legacyPatch.workspace_meta;
+    const legacy = await supabase
+      .from("tasks")
+      .update(legacyPatch)
+      .eq("id", id)
+      .select(TASK_SELECT_LEGACY)
+      .single();
+    data = legacy.data ? ({ ...legacy.data, workspace_meta: {} } as typeof data) : null;
+    error = legacy.error;
+  }
 
   if (error) {
     // RLS bloqueia/oculta → 404 evita vazar existência.

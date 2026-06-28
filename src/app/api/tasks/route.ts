@@ -55,6 +55,7 @@ const CreateTaskSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "due_date deve ser YYYY-MM-DD.")
     .optional(),
   score: z.number().int().min(0).max(100).optional(),
+  workspace_meta: z.record(z.string(), z.unknown()).optional(),
 });
 
 /** Tipos de linha retornada pelo Supabase no SELECT abaixo. */
@@ -70,6 +71,7 @@ interface TaskRow {
   meeting_id: string | null;
   due_at: string | null;
   ai_score: number | null;
+  workspace_meta?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   assignee: AssigneeJoin;
@@ -77,6 +79,14 @@ interface TaskRow {
 }
 
 const TASK_SELECT = `
+  id, title, description, status, priority, area, meeting_id, due_at, ai_score,
+  workspace_meta,
+  created_at, updated_at,
+  assignee:profiles!tasks_assignee_id_fkey(full_name),
+  project:projects(name)
+` as const;
+
+const TASK_SELECT_LEGACY = `
   id, title, description, status, priority, area, meeting_id, due_at, ai_score,
   created_at, updated_at,
   assignee:profiles!tasks_assignee_id_fkey(full_name),
@@ -103,9 +113,19 @@ function shapeTask(row: TaskRow) {
     meeting_id: row.meeting_id,
     due_date: row.due_at ? row.due_at.slice(0, 10) : null,
     score: row.ai_score ?? 0,
+    workspace_meta: row.workspace_meta ?? {},
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+function isMissingWorkspaceMeta(error: { code?: string; message?: string } | null): boolean {
+  return Boolean(
+    error &&
+      (error.code === "42703" ||
+        error.message?.includes("workspace_meta") ||
+        error.message?.includes("Could not find the 'workspace_meta' column")),
+  );
 }
 
 export async function GET(request: Request) {
@@ -156,42 +176,61 @@ export async function GET(request: Request) {
     projectId = data.id as string;
   }
 
-  let query = supabase
-    .from("tasks")
-    .select(TASK_SELECT, { count: "exact" });
+  const buildQuery = (select: typeof TASK_SELECT | typeof TASK_SELECT_LEGACY) => {
+    let query = supabase
+      .from("tasks")
+      .select(select, { count: "exact" });
 
-  if (statusLabel) {
-    const parsed = StatusLabel.safeParse(statusLabel);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "status inválido." }, { status: 422 });
+    if (statusLabel) {
+      const parsed = StatusLabel.safeParse(statusLabel);
+      if (!parsed.success) {
+        return { errorResponse: NextResponse.json({ error: "status inválido." }, { status: 422 }) };
+      }
+      query = query.eq("status", fromStatusLabel(parsed.data));
     }
-    query = query.eq("status", fromStatusLabel(parsed.data));
-  }
-  if (priorityLabel) {
-    const parsed = PriorityLabel.safeParse(priorityLabel);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "priority inválido." }, { status: 422 });
+    if (priorityLabel) {
+      const parsed = PriorityLabel.safeParse(priorityLabel);
+      if (!parsed.success) {
+        return { errorResponse: NextResponse.json({ error: "priority inválido." }, { status: 422 }) };
+      }
+      query = query.eq("priority", fromPriorityLabel(parsed.data));
     }
-    query = query.eq("priority", fromPriorityLabel(parsed.data));
-  }
-  if (assigneeId) query = query.eq("assignee_id", assigneeId);
-  if (projectId) query = query.eq("project_id", projectId);
-  if (dueFrom) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueFrom)) {
-      return NextResponse.json({ error: "due_from deve ser YYYY-MM-DD." }, { status: 422 });
+    if (assigneeId) query = query.eq("assignee_id", assigneeId);
+    if (projectId) query = query.eq("project_id", projectId);
+    if (dueFrom) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dueFrom)) {
+        return { errorResponse: NextResponse.json({ error: "due_from deve ser YYYY-MM-DD." }, { status: 422 }) };
+      }
+      query = query.gte("due_at", `${dueFrom}T00:00:00Z`);
     }
-    query = query.gte("due_at", `${dueFrom}T00:00:00Z`);
-  }
-  if (dueTo) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueTo)) {
-      return NextResponse.json({ error: "due_to deve ser YYYY-MM-DD." }, { status: 422 });
+    if (dueTo) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dueTo)) {
+        return { errorResponse: NextResponse.json({ error: "due_to deve ser YYYY-MM-DD." }, { status: 422 }) };
+      }
+      query = query.lte("due_at", `${dueTo}T23:59:59Z`);
     }
-    query = query.lte("due_at", `${dueTo}T23:59:59Z`);
-  }
+    return { query };
+  };
 
-  const { data, error, count } = await query
+  const firstQuery = buildQuery(TASK_SELECT);
+  if ("errorResponse" in firstQuery) return firstQuery.errorResponse;
+
+  let { data, error, count } = await firstQuery.query
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
+
+  if (isMissingWorkspaceMeta(error)) {
+    const legacyQuery = buildQuery(TASK_SELECT_LEGACY);
+    if ("errorResponse" in legacyQuery) return legacyQuery.errorResponse;
+    const legacy = await legacyQuery.query
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+    data = legacy.data
+      ? (legacy.data.map((row) => ({ ...(row as unknown as Record<string, unknown>), workspace_meta: {} })) as unknown as typeof data)
+      : null;
+    error = legacy.error;
+    count = legacy.count;
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
@@ -233,6 +272,7 @@ export async function POST(request: Request) {
     meeting_id: body.meeting_id ?? null,
         due_date: body.due_date ?? null,
         score: body.score ?? 0,
+        workspace_meta: body.workspace_meta ?? {},
         created_at: now,
         updated_at: now,
         mode: "demo",
@@ -271,13 +311,26 @@ export async function POST(request: Request) {
     meeting_id: body.meeting_id ?? null,
     due_at: body.due_date ? `${body.due_date}T00:00:00Z` : null,
     ai_score: body.score ?? 0,
+    workspace_meta: body.workspace_meta ?? {},
   };
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("tasks")
     .insert(insertPayload)
     .select(TASK_SELECT)
     .single();
+
+  if (isMissingWorkspaceMeta(error)) {
+    const legacyPayload: Record<string, unknown> = { ...insertPayload };
+    delete legacyPayload.workspace_meta;
+    const legacy = await supabase
+      .from("tasks")
+      .insert(legacyPayload)
+      .select(TASK_SELECT_LEGACY)
+      .single();
+    data = legacy.data ? ({ ...legacy.data, workspace_meta: {} } as typeof data) : null;
+    error = legacy.error;
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(shapeTask(data as unknown as TaskRow), { status: 201 });

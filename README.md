@@ -22,9 +22,18 @@ Nenhuma chave administrativa deve usar o prefixo `NEXT_PUBLIC_`.
 
 - `POST /api/meetings/:id/transcript`: salva transcrição.
 - `POST /api/meetings/:id/process`: gera resumo, decisões, riscos e tarefas.
+- `GET/POST /api/tasks`: lista e cria tarefas operacionais.
+- `PUT/DELETE /api/tasks/:id`: atualiza e remove tarefas.
+- `GET/PUT /api/tasks/workspace`: salva Spaces, listas e preferências do painel de tarefas.
 - `POST /api/tasks/command`: consulta ou cria tarefas.
 - `POST /api/documents/upload`: envia arquivos privados de até 20 MB.
 - `POST /api/n8n/webhook`: recebe callbacks assinados do n8n.
+
+O painel de tarefas usa Supabase como fonte primária quando configurado. Detalhes
+ricos inspirados no Open ClickUp, como subtarefas, checklists, anexos, estimativa,
+timer, Space/lista e metadados para IA, são persistidos em `tasks.workspace_meta`
+pela migration `supabase/migrations/20260628193000_add_task_workspace_meta.sql`.
+O navegador mantém `localStorage` apenas como fallback/demonstração e cache de uso.
 
 O callback usa HMAC SHA-256 sobre `<timestamp>.<corpo>` nos cabeçalhos
 `x-vp-timestamp` e `x-vp-signature`, com tolerância de cinco minutos.

@@ -1,5 +1,12 @@
 # Arquitetura — Módulo Tarefas (Frontend-Only)
 
+> Status atual: documento histórico/obsoleto. Esta proposta localStorage-only foi
+> superada pela arquitetura de produção do painel Tríade. O módulo `/app/tarefas`
+> agora usa `/api/tasks`, `/api/tasks/:id`, `/api/tasks/workspace`, Supabase/RLS,
+> `tasks.meeting_id` e `tasks.workspace_meta` como fonte primária quando o backend
+> está configurado. `localStorage` permanece apenas como fallback de demonstração
+> e cache local defensivo.
+
 **Autor:** Aria (AIOS Architect)
 **Escopo:** `src/app/app/tarefas` e `src/components/tasks-workspace.tsx`
 **Objetivo:** Remover 100% da dependência de backend (Supabase, Next API routes, server actions) do módulo Tarefas, mantendo todas as funcionalidades existentes e adicionando Calendar view, Filter panel, New Task dialog e drag-and-drop no Kanban.
