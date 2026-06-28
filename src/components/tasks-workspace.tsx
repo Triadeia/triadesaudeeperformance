@@ -37,6 +37,7 @@ type ViewMode = "list" | "board" | "calendar" | "gantt" | "table";
 type StatusKey = "todo" | "progress" | "review" | "complete";
 type Priority = "urgent" | "high" | "normal" | "low";
 type GroupBy = "status" | "priority" | "assignee" | "none";
+type AppTheme = "light" | "dark" | "navy";
 
 type Subtask = { id: string; title: string; done: boolean; assignee: string };
 type CustomFields = { storyPoints: number; environment: "Dev" | "Staging" | "Production" | "-" };
@@ -85,6 +86,8 @@ type ApiTask = {
 
 const STORAGE_KEY = "triade:open-clickup:complete:v1";
 const SPACES_STORAGE_KEY = "triade:open-clickup:spaces:v1";
+const THEME_STORAGE_KEY = "tsp-theme";
+const VALID_THEMES: AppTheme[] = ["light", "dark", "navy"];
 
 const people: Record<string, { name: string; color: string }> = {
   SC: { name: "Santiago Cotto", color: "bg-violet-500" },
@@ -625,6 +628,23 @@ function timeFromMinutes(total: number) {
   return `${minutes}m`;
 }
 
+function readTheme(): AppTheme {
+  if (typeof window === "undefined") return "light";
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  const dataset = document.documentElement.dataset.theme;
+  if (VALID_THEMES.includes(dataset as AppTheme)) return dataset as AppTheme;
+  if (VALID_THEMES.includes(stored as AppTheme)) return stored as AppTheme;
+  return "light";
+}
+
+function applyTheme(theme: AppTheme) {
+  document.documentElement.dataset.theme = theme;
+  window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  document
+    .querySelectorAll<HTMLElement>("[data-theme-choice]")
+    .forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.themeChoice === theme)));
+}
+
 const apiStatusToUi: Record<string, StatusKey> = {
   Backlog: "todo",
   "A Fazer": "todo",
@@ -738,7 +758,7 @@ export function TasksWorkspace() {
   const [activeList, setActiveList] = useState("Sprint 24");
   const [query, setQuery] = useState("");
   const [groupBy, setGroupBy] = useState<GroupBy>("status");
-  const [dark, setDark] = useState(false);
+  const [theme, setTheme] = useState<AppTheme>("light");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [filterPriority, setFilterPriority] = useState<Priority | "all">("all");
@@ -748,6 +768,7 @@ export function TasksWorkspace() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      setTheme(readTheme());
       setTasks(loadStoredTasks());
       setSpaces(loadStoredSpaces());
       setHydrated(true);
@@ -779,6 +800,18 @@ export function TasksWorkspace() {
         .catch(() => undefined);
     }, 0);
     return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const syncTheme = () => setTheme(readTheme());
+    syncTheme();
+    window.addEventListener("storage", syncTheme);
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => {
+      window.removeEventListener("storage", syncTheme);
+      observer.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -915,6 +948,12 @@ export function TasksWorkspace() {
     patchTask(id, { status });
   }
 
+  function cycleTheme() {
+    const next: AppTheme = theme === "light" ? "dark" : theme === "dark" ? "navy" : "light";
+    applyTheme(next);
+    setTheme(next);
+  }
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -930,10 +969,24 @@ export function TasksWorkspace() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  const isDarkTheme = theme !== "light";
+
   return (
-    <div className={cls("fixed inset-0 z-[80] flex overflow-hidden bg-white text-[#1d2129]", dark && "dark bg-[#1a1c23] text-[#e6e8ec]")}>
-      <aside className="flex w-[260px] shrink-0 flex-col border-r border-[#e8eaed] bg-[#fafbfc] dark:border-[#2a2e38] dark:bg-[#15171d]">
-        <div className="flex h-[52px] items-center gap-2 border-b border-[#e8eaed] px-4 dark:border-[#2a2e38]">
+    <div
+      className={cls(
+        "fixed inset-0 z-[80] flex overflow-hidden bg-white text-[#1d2129]",
+        isDarkTheme && "dark bg-[#1a1c23] text-[#e6e8ec]",
+        theme === "navy" && "bg-[#071e33] text-[#ecf7ff]",
+      )}
+      data-open-clickup-theme={theme}
+    >
+      <aside
+        className={cls(
+          "flex w-[260px] shrink-0 flex-col border-r",
+          isDarkTheme ? "border-[#2a2e38] bg-[#15171d] text-[#e6e8ec]" : "border-[#e8eaed] bg-[#fafbfc] text-[#1d2129]",
+        )}
+      >
+        <div className={cls("flex h-[52px] items-center gap-2 border-b px-4", isDarkTheme ? "border-[#2a2e38]" : "border-[#e8eaed]")}>
           <div className="grid size-7 place-items-center rounded-md bg-[#041827] text-[11px] font-black tracking-tight text-emerald-300">TSP</div>
           <div className="min-w-0">
             <span className="block truncate font-semibold">Triade TSP</span>
@@ -967,8 +1020,8 @@ export function TasksWorkspace() {
           ))}
         </div>
         <div className="flex items-center gap-2 border-t border-[#e8eaed] p-3 dark:border-[#2a2e38]">
-          <Avatar id={dark ? "MC" : "SC"} size="md" />
-          <span className="truncate text-sm">{dark ? "Maya Chen" : "Santiago Cotto"}</span>
+          <Avatar id="SC" size="md" />
+          <span className="truncate text-sm">Will Trindade</span>
           <button onClick={() => setNoticeOpen(true)} className="ml-auto rounded p-1.5 text-slate-500 hover:bg-[#eceef1] dark:hover:bg-[#262a34]"><Bell className="size-4" /></button>
           <button onClick={() => setSettingsOpen(true)} className="rounded p-1.5 text-slate-500 hover:bg-[#eceef1] dark:hover:bg-[#262a34]"><Settings className="size-4" /></button>
         </div>
@@ -1037,17 +1090,17 @@ export function TasksWorkspace() {
           {view === "list" && <ListView tasks={visibleTasks} groupBy={groupBy} onOpen={setSelectedTaskId} onAdd={createTask} />}
           {view === "board" && <BoardView tasks={visibleTasks} onOpen={setSelectedTaskId} onMove={moveTask} onAdd={createTask} />}
           {view === "calendar" && <CalendarView tasks={visibleTasks} onOpen={setSelectedTaskId} />}
-          {view === "gantt" && <GanttView tasks={visibleTasks} onOpen={setSelectedTaskId} dark={dark} />}
+          {view === "gantt" && <GanttView tasks={visibleTasks} onOpen={setSelectedTaskId} dark={isDarkTheme} />}
           {view === "table" && <TableView tasks={visibleTasks} groupBy={groupBy} onOpen={setSelectedTaskId} onPatch={patchTask} />}
         </section>
       </main>
 
       <button
-        onClick={() => setDark((value) => !value)}
+        onClick={cycleTheme}
         className="fixed bottom-5 left-5 z-[90] grid size-10 place-items-center rounded-full border border-white/20 bg-[#1d2129] text-white shadow-xl"
-        aria-label="Toggle dark mode"
+        aria-label="Alternar tema do painel"
       >
-        {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+        {isDarkTheme ? <Sun className="size-4" /> : <Moon className="size-4" />}
       </button>
 
       {paletteOpen ? (
