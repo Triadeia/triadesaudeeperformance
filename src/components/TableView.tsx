@@ -101,6 +101,7 @@ export default function TableView({
   const [draftValue, setDraftValue] = useState<string>("");
   const [dragId, setDragId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [bulkAssignee, setBulkAssignee] = useState<string>("SC");
 
   // ----- derived -----
   const sorted = useMemo(() => {
@@ -213,15 +214,15 @@ export default function TableView({
   };
 
   const bulkAssign = () => {
-    if (typeof window === "undefined") return;
-    const v = window.prompt("Atribuir a:");
-    if (v == null) return;
     onBulkUpdate(Array.from(selected), {
-      assignee: v.trim() || undefined,
+      assignee: bulkAssignee.trim() || undefined,
       updatedAt: new Date().toISOString(),
     });
     clearSelection();
   };
+  const assigneeOptions = Array.from(
+    new Set(tasks.map((task) => task.assignee).filter((value): value is string => Boolean(value && value.trim()))),
+  );
 
   // ----- drag reorder -----
   const handleDragStart = (id: string) => setDragId(id);
@@ -285,6 +286,18 @@ export default function TableView({
                 {(Object.keys(STATUS_LABELS) as TaskStatus[]).map((s) => (
                   <option key={s} value={s}>
                     {STATUS_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={bulkAssignee}
+                onChange={(event) => setBulkAssignee(event.target.value)}
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+              >
+                <option value="">Responsável</option>
+                {assigneeOptions.map((assignee) => (
+                  <option key={assignee} value={assignee}>
+                    {assignee}
                   </option>
                 ))}
               </select>

@@ -54,6 +54,7 @@ const CreateTaskSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "due_date deve ser YYYY-MM-DD.")
     .optional(),
+  position: z.number().int().optional(),
   score: z.number().int().min(0).max(100).optional(),
   workspace_meta: z.record(z.string(), z.unknown()).optional(),
 });
@@ -71,6 +72,7 @@ interface TaskRow {
   meeting_id: string | null;
   due_at: string | null;
   ai_score: number | null;
+  position: number | null;
   workspace_meta?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
@@ -80,6 +82,7 @@ interface TaskRow {
 
 const TASK_SELECT = `
   id, title, description, status, priority, area, meeting_id, due_at, ai_score,
+  position,
   workspace_meta,
   created_at, updated_at,
   assignee:profiles!tasks_assignee_id_fkey(full_name),
@@ -88,6 +91,7 @@ const TASK_SELECT = `
 
 const TASK_SELECT_LEGACY = `
   id, title, description, status, priority, area, meeting_id, due_at, ai_score,
+  position,
   created_at, updated_at,
   assignee:profiles!tasks_assignee_id_fkey(full_name),
   project:projects(name)
@@ -113,6 +117,7 @@ function shapeTask(row: TaskRow) {
     meeting_id: row.meeting_id,
     due_date: row.due_at ? row.due_at.slice(0, 10) : null,
     score: row.ai_score ?? 0,
+    position: row.position,
     workspace_meta: row.workspace_meta ?? {},
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -216,6 +221,7 @@ export async function GET(request: Request) {
   if ("errorResponse" in firstQuery) return firstQuery.errorResponse;
 
   let { data, error, count } = await firstQuery.query
+    .order("position", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -223,6 +229,7 @@ export async function GET(request: Request) {
     const legacyQuery = buildQuery(TASK_SELECT_LEGACY);
     if ("errorResponse" in legacyQuery) return legacyQuery.errorResponse;
     const legacy = await legacyQuery.query
+      .order("position", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
     data = legacy.data
@@ -268,9 +275,10 @@ export async function POST(request: Request) {
         priority: body.priority ?? "Média",
         assignee: body.assignee ?? "",
         project: body.project ?? "",
-    area: body.area ?? "",
-    meeting_id: body.meeting_id ?? null,
+        area: body.area ?? "",
+        meeting_id: body.meeting_id ?? null,
         due_date: body.due_date ?? null,
+        position: body.position ?? 0,
         score: body.score ?? 0,
         workspace_meta: body.workspace_meta ?? {},
         created_at: now,
@@ -310,6 +318,7 @@ export async function POST(request: Request) {
     project_id: projectId,
     meeting_id: body.meeting_id ?? null,
     due_at: body.due_date ? `${body.due_date}T00:00:00Z` : null,
+    position: body.position ?? 0,
     ai_score: body.score ?? 0,
     workspace_meta: body.workspace_meta ?? {},
   };

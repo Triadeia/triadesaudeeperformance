@@ -7,20 +7,45 @@ import { createClient } from "@/lib/supabase/server";
 const WORKSPACE_CONFIG_NAME = "__open_clickup_workspace__";
 
 const WorkspaceSchema = z.object({
+  workspaceName: z.string().min(1).optional(),
   spaces: z.array(
     z.object({
       id: z.string().min(1),
       name: z.string().min(1),
       emoji: z.string().min(1),
+      favorite: z.boolean().optional(),
+      collapsed: z.boolean().optional(),
       lists: z.array(
         z.object({
+          id: z.string().min(1),
           name: z.string().min(1),
           marker: z.string().min(1),
+          favorite: z.boolean().optional(),
+          collapsed: z.boolean().optional(),
         }),
       ),
     }),
   ),
+  members: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        email: z.string().email().or(z.literal("")).optional(),
+        role: z.string().min(1),
+        area: z.string().min(1),
+        active: z.boolean(),
+        color: z.string().min(1).optional(),
+      }),
+    )
+    .optional(),
+  favorites: z.array(z.string().min(1)).optional(),
+  collapsedSpaces: z.array(z.string().min(1)).optional(),
+  collapsedLists: z.array(z.string().min(1)).optional(),
+  spaceOrder: z.array(z.string().min(1)).optional(),
+  listOrder: z.array(z.string().min(1)).optional(),
   activeList: z.string().min(1).optional(),
+  activeSpaceId: z.string().min(1).optional(),
   view: z.enum(["list", "board", "calendar", "gantt", "table"]).optional(),
   groupBy: z.enum(["status", "priority", "assignee", "none"]).optional(),
   filterPriority: z.enum(["all", "urgent", "high", "normal", "low"]).optional(),

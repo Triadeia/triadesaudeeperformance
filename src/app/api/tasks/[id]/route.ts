@@ -39,6 +39,7 @@ const UpdateTaskSchema = z
     assignee: z.string().max(120).nullable().optional(),
     project: z.string().max(120).nullable().optional(),
     area: z.string().max(120).nullable().optional(),
+    position: z.number().int().nullable().optional(),
     due_date: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "due_date deve ser YYYY-MM-DD.")
@@ -63,6 +64,7 @@ interface TaskRow {
   meeting_id: string | null;
   due_at: string | null;
   ai_score: number | null;
+  position: number | null;
   workspace_meta?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
@@ -72,6 +74,7 @@ interface TaskRow {
 
 const TASK_SELECT = `
   id, title, description, status, priority, area, meeting_id, due_at, ai_score,
+  position,
   workspace_meta,
   created_at, updated_at,
   assignee:profiles!tasks_assignee_id_fkey(full_name),
@@ -80,6 +83,7 @@ const TASK_SELECT = `
 
 const TASK_SELECT_LEGACY = `
   id, title, description, status, priority, area, meeting_id, due_at, ai_score,
+  position,
   created_at, updated_at,
   assignee:profiles!tasks_assignee_id_fkey(full_name),
   project:projects(name)
@@ -105,6 +109,7 @@ function shapeTask(row: TaskRow) {
     meeting_id: row.meeting_id,
     due_date: row.due_at ? row.due_at.slice(0, 10) : null,
     score: row.ai_score ?? 0,
+    position: row.position,
     workspace_meta: row.workspace_meta ?? {},
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -163,6 +168,7 @@ export async function PUT(
   if (body.status !== undefined) patch.status = fromStatusLabel(body.status);
   if (body.priority !== undefined) patch.priority = fromPriorityLabel(body.priority);
   if (body.area !== undefined) patch.area = body.area;
+  if (body.position !== undefined) patch.position = body.position;
   if (body.due_date !== undefined) {
     patch.due_at = body.due_date ? `${body.due_date}T00:00:00Z` : null;
   }
