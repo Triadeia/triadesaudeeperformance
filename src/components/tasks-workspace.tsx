@@ -44,13 +44,18 @@ type AppTheme = "light" | "dark" | "navy";
 type WorkspaceLanguage = "pt-BR" | "en-US";
 
 type Subtask = { id: string; title: string; done: boolean; assignee: string };
+type ChecklistItem = { id: string; title: string; done: boolean };
 type TaskAttachment = {
   documentId?: string | null;
   title: string;
   mimeType?: string;
   size?: number;
 };
-type CustomFields = { storyPoints: number; environment: "Dev" | "Staging" | "Production" | "-" };
+type CustomFields = {
+  storyPoints: number;
+  environment: "Dev" | "Staging" | "Production" | "-";
+  sector: string;
+};
 type TeamDefinition = { id: string; name: string; emoji: string; color: string; memberIds: string[] };
 type NotificationPrefs = { desktopAlerts: boolean; emailDigest: boolean; dueSoon: boolean; meetingSync: boolean };
 type TeamMember = { id: string; name: string; email: string; role: string; area: string; active: boolean; color: string; teamId?: string };
@@ -93,7 +98,7 @@ type Task = {
   comments: number;
   watchers: string[];
   subtasks: Subtask[];
-  checklists: string[];
+  checklists: ChecklistItem[];
   attachments?: TaskAttachment[];
   customFields: CustomFields;
   timeEstimate: string;
@@ -143,6 +148,18 @@ const TEAM_COLORS = [
   "bg-orange-500",
   "bg-cyan-500",
 ];
+const SECTOR_OPTIONS = [
+  "Operação",
+  "Comercial",
+  "Copywriting",
+  "Design",
+  "Editorial",
+  "Estratégia",
+  "Expert",
+  "Gestão",
+  "Suporte",
+  "Tráfego",
+] as const;
 const defaultNotificationPrefs: NotificationPrefs = {
   desktopAlerts: true,
   emailDigest: false,
@@ -367,6 +384,27 @@ function attachmentArray(value: unknown): TaskAttachment[] {
     .filter((item): item is TaskAttachment => Boolean(item));
 }
 
+function checklistArray(value: unknown): ChecklistItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index): ChecklistItem | null => {
+      if (typeof item === "string") {
+        const title = item.trim();
+        return title ? { id: `check-${index}`, title, done: false } : null;
+      }
+      if (!item || typeof item !== "object") return null;
+      const raw = item as Record<string, unknown>;
+      const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "";
+      if (!title) return null;
+      return {
+        id: typeof raw.id === "string" && raw.id ? raw.id : `check-${index}`,
+        title,
+        done: Boolean(raw.done),
+      };
+    })
+    .filter((item): item is ChecklistItem => Boolean(item));
+}
+
 function firstString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
@@ -380,7 +418,7 @@ function normalizeTask(value: unknown, index: number): Task {
   const tags = stringArray(raw.tags);
   const watchers = stringArray(raw.watchers);
   const dependencies = stringArray(raw.dependencies);
-  const checklists = stringArray(raw.checklists);
+  const checklists = checklistArray(raw.checklists);
   const attachments = attachmentArray(raw.attachments);
   const subtasks = Array.isArray(raw.subtasks)
     ? (raw.subtasks as unknown[])
@@ -404,6 +442,10 @@ function normalizeTask(value: unknown, index: number): Task {
     customFields.environment === "-"
       ? customFields.environment
       : base.customFields.environment;
+  const sector =
+    typeof customFields.sector === "string" && customFields.sector.trim()
+      ? customFields.sector.trim()
+      : base.customFields.sector;
 
   return {
     ...base,
@@ -426,7 +468,7 @@ function normalizeTask(value: unknown, index: number): Task {
     subtasks,
     checklists,
     attachments,
-    customFields: { storyPoints, environment },
+    customFields: { storyPoints, environment, sector },
     timeEstimate: typeof raw.timeEstimate === "string" ? raw.timeEstimate : base.timeEstimate,
     timeLogged: typeof raw.timeLogged === "string" ? raw.timeLogged : base.timeLogged,
     meetingId: typeof raw.meetingId === "string" ? raw.meetingId : null,
@@ -595,6 +637,14 @@ function uniqueId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
+async function copyWorkspaceLink(spaceId: string, listName?: string) {
+  if (typeof window === "undefined" || !navigator.clipboard) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set("space", spaceId);
+  if (listName) url.searchParams.set("list", listName);
+  await navigator.clipboard.writeText(url.toString());
+}
+
 function blankTaskTemplate(index: number): Task {
   const today = new Date().toISOString().slice(0, 10);
   return {
@@ -617,7 +667,7 @@ function blankTaskTemplate(index: number): Task {
     subtasks: [],
     checklists: [],
     attachments: [],
-    customFields: { storyPoints: 0, environment: "-" },
+    customFields: { storyPoints: 0, environment: "-", sector: "Operação" },
     timeEstimate: "0m",
     timeLogged: "0m",
     meetingId: null,
@@ -695,9 +745,20 @@ function taskFromApi(apiTask: ApiTask, index: number): Task {
     comments: typeof meta.comments === "number" ? meta.comments : 0,
     watchers: stringArray(meta.watchers).length ? stringArray(meta.watchers) : [],
     subtasks: Array.isArray(meta.subtasks) ? meta.subtasks : [],
-    checklists: stringArray(meta.checklists).length ? stringArray(meta.checklists) : isMeetingTask ? ["Validar decisão", "Executar próximo passo"] : [],
+    checklists:
+      checklistArray(meta.checklists).length
+        ? checklistArray(meta.checklists)
+        : isMeetingTask
+          ? [
+              { id: `meeting-${apiTask.id}-check-1`, title: "Validar decisão", done: false },
+              { id: `meeting-${apiTask.id}-check-2`, title: "Executar próximo passo", done: false },
+            ]
+          : [],
     attachments: attachmentArray(meta.attachments),
-    customFields: meta.customFields && typeof meta.customFields === "object" ? meta.customFields : { storyPoints: apiTask.score ?? base.storyPoints, environment: "-" },
+    customFields:
+      meta.customFields && typeof meta.customFields === "object"
+        ? meta.customFields
+        : { storyPoints: apiTask.score ?? base.storyPoints, environment: "-", sector: apiTask.area?.trim() || "Operação" },
     timeEstimate: firstString(meta.timeEstimate) ?? base.timeEstimate,
     timeLogged: firstString(meta.timeLogged) ?? "0m",
     meetingId: apiTask.meeting_id ?? null,
@@ -713,7 +774,7 @@ function taskToApiPayload(task: Task, options: { includeMeetingId?: boolean } = 
     status: uiStatusToApi[task.status],
     priority: uiPriorityToApi[task.priority],
     project: task.list,
-    area: task.tags[0] === "reunião" ? "Reuniões" : task.space,
+    area: task.tags[0] === "reunião" ? "Reuniões" : task.customFields?.sector || task.space,
     due_date: task.dueDate,
     score: task.storyPoints,
     position: task.position ?? 0,
@@ -733,7 +794,7 @@ function taskToApiPayload(task: Task, options: { includeMeetingId?: boolean } = 
       subtasks: task.subtasks ?? [],
       checklists: task.checklists ?? [],
       attachments: task.attachments ?? [],
-      customFields: task.customFields ?? { storyPoints: task.storyPoints ?? 0, environment: "-" },
+      customFields: task.customFields ?? { storyPoints: task.storyPoints ?? 0, environment: "-", sector: "Operação" },
       timeEstimate: task.timeEstimate,
       timeLogged: task.timeLogged,
       meetingId: task.meetingId ?? null,
@@ -804,6 +865,11 @@ type WorkspaceDialogState =
   | { kind: "workspace"; mode: "rename" }
   | null;
 
+type StructureDeleteState =
+  | { kind: "space"; spaceId: string; name: string; taskIds: string[] }
+  | { kind: "list"; spaceId: string; listId: string; name: string; taskIds: string[] }
+  | null;
+
 export function TasksWorkspace() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [spaces, setSpaces] = useState<SpaceConfig[]>(defaultSpaces);
@@ -837,6 +903,9 @@ export function TasksWorkspace() {
   const [dialogLoading, setDialogLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [structureDeleteTarget, setStructureDeleteTarget] = useState<StructureDeleteState>(null);
+  const [structureDeleteLoading, setStructureDeleteLoading] = useState(false);
+  const [pendingRoute, setPendingRoute] = useState<{ spaceId?: string; list?: string } | null>(null);
 
   useEffect(() => {
     runtimePeople = {
@@ -844,6 +913,13 @@ export function TasksWorkspace() {
       ...buildPeopleDirectory(members),
     };
   }, [members]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const spaceId = params.get("space") ?? undefined;
+    const list = params.get("list") ?? undefined;
+    if (spaceId || list) setPendingRoute({ spaceId, list });
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -952,6 +1028,14 @@ export function TasksWorkspace() {
     return () => window.clearTimeout(timer);
   }, [activeList, activeSpaceId, collapsedLists, collapsedSpaces, favorites, groupBy, hydrated, language, listOrder, members, notificationPrefs, sortBy, spaceOrder, spaces, teams, filterPriority, view, workspaceName]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    const url = new URL(window.location.href);
+    if (activeSpaceId) url.searchParams.set("space", activeSpaceId);
+    if (activeList) url.searchParams.set("list", activeList);
+    window.history.replaceState({}, "", url);
+  }, [activeList, activeSpaceId, hydrated]);
+
   const visibleTasks = useMemo(() => {
     const searched = tasks.filter((task) => {
       const inList = task.list === activeList || activeList === "Home";
@@ -995,6 +1079,21 @@ export function TasksWorkspace() {
       })),
     [listOrder, orderedSpaces],
   );
+
+  useEffect(() => {
+    if (!hydrated || !pendingRoute) return;
+    const targetSpace = pendingRoute.spaceId
+      ? orderedWorkspaceSpaces.find((space) => space.id === pendingRoute.spaceId)
+      : null;
+    if (targetSpace) setActiveSpaceId(targetSpace.id);
+    if (pendingRoute.list) {
+      const listOwner =
+        orderedWorkspaceSpaces.find((space) => space.lists.some((list) => list.name === pendingRoute.list)) ?? targetSpace;
+      if (listOwner) setActiveSpaceId(listOwner.id);
+      setActiveList(pendingRoute.list);
+    }
+    setPendingRoute(null);
+  }, [hydrated, orderedWorkspaceSpaces, pendingRoute]);
 
   const activeSpace = orderedWorkspaceSpaces.find((space) => space.id === activeSpaceId) ?? orderedWorkspaceSpaces[0] ?? defaultSpaces[0];
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
@@ -1234,6 +1333,147 @@ export function TasksWorkspace() {
     );
   }
 
+  function duplicateSpace(spaceId: string) {
+    const original = orderedWorkspaceSpaces.find((space) => space.id === spaceId);
+    if (!original) return;
+    const duplicatedLists = original.lists.map((list) => ({
+      ...list,
+      id: uniqueId("list"),
+      name: `${list.name} copy`,
+    }));
+    const duplicate: SpaceConfig = {
+      ...original,
+      id: uniqueId("space"),
+      name: `${original.name} copy`,
+      lists: duplicatedLists,
+    };
+    setSpaces((current) => {
+      const index = current.findIndex((space) => space.id === spaceId);
+      if (index < 0) return [...current, duplicate];
+      const next = [...current];
+      next.splice(index + 1, 0, duplicate);
+      return next;
+    });
+    setSpaceOrder((current) => {
+      if (!current.length) return [];
+      const index = current.indexOf(spaceId);
+      if (index < 0) return [...current, duplicate.id];
+      const next = [...current];
+      next.splice(index + 1, 0, duplicate.id);
+      return next;
+    });
+  }
+
+  function duplicateList(spaceId: string, listId: string) {
+    const space = orderedWorkspaceSpaces.find((item) => item.id === spaceId);
+    const original = space?.lists.find((list) => list.id === listId);
+    if (!space || !original) return;
+    const duplicate: ListConfig = {
+      ...original,
+      id: uniqueId("list"),
+      name: `${original.name} copy`,
+    };
+    setSpaces((current) =>
+      current.map((item) => {
+        if (item.id !== spaceId) return item;
+        const index = item.lists.findIndex((list) => list.id === listId);
+        if (index < 0) return { ...item, lists: [...item.lists, duplicate] };
+        const nextLists = [...item.lists];
+        nextLists.splice(index + 1, 0, duplicate);
+        return { ...item, lists: nextLists };
+      }),
+    );
+    setListOrder((current) => {
+      if (!current.length) return [];
+      const key = `${spaceId}:${listId}`;
+      const nextKey = `${spaceId}:${duplicate.id}`;
+      const index = current.indexOf(key);
+      if (index < 0) return [...current, nextKey];
+      const next = [...current];
+      next.splice(index + 1, 0, nextKey);
+      return next;
+    });
+  }
+
+  function requestDeleteSpace(spaceId: string) {
+    const space = orderedWorkspaceSpaces.find((item) => item.id === spaceId);
+    if (!space) return;
+    const relatedTasks = tasks
+      .filter((task) => task.space === space.name || space.lists.some((list) => list.name === task.list && task.space === space.name))
+      .map((task) => task.id);
+    setStructureDeleteTarget({ kind: "space", spaceId, name: space.name, taskIds: relatedTasks });
+  }
+
+  function requestDeleteList(spaceId: string, listId: string) {
+    const space = orderedWorkspaceSpaces.find((item) => item.id === spaceId);
+    const list = space?.lists.find((item) => item.id === listId);
+    if (!space || !list) return;
+    const relatedTasks = tasks
+      .filter((task) => task.space === space.name && task.list === list.name)
+      .map((task) => task.id);
+    setStructureDeleteTarget({ kind: "list", spaceId, listId, name: list.name, taskIds: relatedTasks });
+  }
+
+  async function confirmDeleteStructure() {
+    if (!structureDeleteTarget) return;
+    const structureSnapshot = spaces;
+    const taskSnapshot = tasks;
+    setStructureDeleteLoading(true);
+    try {
+      if (structureDeleteTarget.kind === "space") {
+        const space = orderedWorkspaceSpaces.find((item) => item.id === structureDeleteTarget.spaceId);
+        if (!space) return;
+        const nextSpaces = spaces.filter((item) => item.id !== structureDeleteTarget.spaceId);
+        const nextTasks = tasks.filter(
+          (task) => !(task.space === space.name || space.lists.some((list) => list.name === task.list && task.space === space.name)),
+        );
+        setSpaces(nextSpaces);
+        setTasks(nextTasks);
+        setSpaceOrder((current) => current.filter((id) => id !== structureDeleteTarget.spaceId));
+        setListOrder((current) => current.filter((key) => !key.startsWith(`${structureDeleteTarget.spaceId}:`)));
+        if (activeSpaceId === structureDeleteTarget.spaceId) {
+          const fallback = nextSpaces[0];
+          setActiveSpaceId(fallback?.id ?? "product");
+          setActiveList(fallback?.lists[0]?.name ?? "Sprint 24");
+        }
+      } else {
+        const space = orderedWorkspaceSpaces.find((item) => item.id === structureDeleteTarget.spaceId);
+        const list = space?.lists.find((item) => item.id === structureDeleteTarget.listId);
+        if (!space || !list) return;
+        const nextSpaces = spaces.map((item) =>
+          item.id === structureDeleteTarget.spaceId
+            ? {
+                ...item,
+                lists:
+                  item.lists.filter((entry) => entry.id !== structureDeleteTarget.listId).length > 0
+                    ? item.lists.filter((entry) => entry.id !== structureDeleteTarget.listId)
+                    : [{ id: uniqueId("list"), name: "Lista principal", marker: "text-violet-500" }],
+              }
+            : item,
+        );
+        const nextTasks = tasks.filter((task) => !(task.space === space.name && task.list === list.name));
+        setSpaces(nextSpaces);
+        setTasks(nextTasks);
+        setListOrder((current) => current.filter((key) => key !== `${structureDeleteTarget.spaceId}:${structureDeleteTarget.listId}`));
+        if (activeList === list.name) {
+          const fallbackList = nextSpaces.find((item) => item.id === structureDeleteTarget.spaceId)?.lists[0]?.name;
+          setActiveList(fallbackList ?? "Sprint 24");
+        }
+      }
+      await Promise.all(
+        structureDeleteTarget.taskIds.map((taskId) =>
+          fetch(`/api/tasks/${taskId}`, { method: "DELETE" }).catch(() => undefined),
+        ),
+      );
+      setStructureDeleteTarget(null);
+    } catch {
+      setSpaces(structureSnapshot);
+      setTasks(taskSnapshot);
+    } finally {
+      setStructureDeleteLoading(false);
+    }
+  }
+
   function moveTaskByDirection(id: string, direction: -1 | 1) {
     setTasks((current) => {
       const sameList = current.filter((task) => task.list === activeList);
@@ -1279,7 +1519,27 @@ export function TasksWorkspace() {
         setDialog(null);
       } else if (dialog.kind === "space" && dialog.mode === "rename") {
         if (!value) return;
+        const previousSpaceName = spaces.find((space) => space.id === dialog.spaceId)?.name;
         setSpaces((current) => current.map((space) => (space.id === dialog.spaceId ? { ...space, name: value, emoji: dialogEmoji || space.emoji } : space)));
+        if (previousSpaceName && previousSpaceName !== value) {
+          const affectedTasks = tasks.filter((task) => task.space === previousSpaceName);
+          setTasks((current) =>
+            current.map((task) =>
+              task.space === previousSpaceName
+                ? {
+                    ...task,
+                    space: value,
+                  }
+                : task,
+            ),
+          );
+          affectedTasks.forEach((task) => {
+            void syncPatchTask(
+              { ...task, space: value },
+              { space: value },
+            ).catch(() => undefined);
+          });
+        }
         if (activeSpaceId === dialog.spaceId) setActiveSpaceId(dialog.spaceId);
         setDialog(null);
       } else if (dialog.kind === "list" && dialog.mode === "create") {
@@ -1305,6 +1565,25 @@ export function TasksWorkspace() {
               : space,
           ),
         );
+        if (previousListName && previousListName !== value) {
+          const affectedTasks = tasks.filter((task) => task.list === previousListName);
+          setTasks((current) =>
+            current.map((task) =>
+              task.list === previousListName
+                ? {
+                    ...task,
+                    list: value,
+                  }
+                : task,
+            ),
+          );
+          affectedTasks.forEach((task) => {
+            void syncPatchTask(
+              { ...task, list: value },
+              { list: value },
+            ).catch(() => undefined);
+          });
+        }
         if (previousListName && activeList === previousListName) setActiveList(value);
         setDialog(null);
       }
@@ -1336,9 +1615,9 @@ export function TasksWorkspace() {
       subtasks: [],
       checklists: [],
       attachments: [],
-      customFields: { storyPoints: 1, environment: "-" },
+      customFields: { storyPoints: 1, environment: "-", sector: activeSpace?.name ?? "Operação" },
       timeEstimate: "0m",
-      timeLogged: "0h",
+      timeLogged: "0m",
       position: taskPosition,
     };
     setTasks((current) => [task, ...current]);
@@ -1444,6 +1723,9 @@ export function TasksWorkspace() {
               onRename={() => openRenameSpace(space)}
               onMoveUp={() => moveSpace(space.id, -1)}
               onMoveDown={() => moveSpace(space.id, 1)}
+              onDuplicate={() => duplicateSpace(space.id)}
+              onCopyLink={() => void copyWorkspaceLink(space.id)}
+              onDelete={() => requestDeleteSpace(space.id)}
             >
               {space.lists.map((list) => (
                 <FolderLink
@@ -1462,6 +1744,9 @@ export function TasksWorkspace() {
                   onRename={() => openRenameList(space.id, list)}
                   onMoveUp={() => moveList(space.id, list.id, -1)}
                   onMoveDown={() => moveList(space.id, list.id, 1)}
+                  onDuplicate={() => duplicateList(space.id, list.id)}
+                  onCopyLink={() => void copyWorkspaceLink(space.id, list.name)}
+                  onDelete={() => requestDeleteList(space.id, list.id)}
                 />
               ))}
             </Space>
@@ -1498,6 +1783,7 @@ export function TasksWorkspace() {
                 <DropdownMenu.Content className="z-[150] min-w-56 rounded-md border border-[#e8eaed] bg-white p-1 shadow-xl dark:border-[#2a2e38] dark:bg-[#20232c]">
                   <DropdownMenu.Item onSelect={() => setSettingsOpen(true)} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Open settings</DropdownMenu.Item>
                   <DropdownMenu.Item onSelect={openRenameActiveList} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Rename list</DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => void copyWorkspaceLink(activeSpace?.id ?? "product", activeList)} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Copy link</DropdownMenu.Item>
                   <DropdownMenu.Item onSelect={() => createTask()} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">New task</DropdownMenu.Item>
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
@@ -1568,7 +1854,7 @@ export function TasksWorkspace() {
           {view === "board" && <BoardView tasks={visibleTasks} onOpen={setSelectedTaskId} onMove={moveTask} onAdd={createTask} />}
           {view === "calendar" && <CalendarView tasks={visibleTasks} onOpen={setSelectedTaskId} />}
           {view === "gantt" && <GanttView tasks={visibleTasks} onOpen={setSelectedTaskId} dark={isDarkTheme} />}
-          {view === "table" && <TableView tasks={visibleTasks} groupBy={groupBy} onOpen={setSelectedTaskId} onPatch={patchTask} onDelete={requestDeleteTask} />}
+          {view === "table" && <TableView tasks={visibleTasks} members={members} groupBy={groupBy} onOpen={setSelectedTaskId} onPatch={patchTask} onDelete={requestDeleteTask} />}
         </section>
       </main>
 
@@ -1675,6 +1961,43 @@ export function TasksWorkspace() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+      <Dialog.Root
+        open={Boolean(structureDeleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setStructureDeleteTarget(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[132] bg-black/50" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[133] w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#e8eaed] bg-white p-6 shadow-2xl dark:border-[#2a2e38] dark:bg-[#20232c]">
+            <Dialog.Title className="text-lg font-semibold text-slate-900 dark:text-white">
+              {structureDeleteTarget?.kind === "space" ? "Excluir space" : "Excluir lista"}
+            </Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm leading-6 text-slate-500">
+              {structureDeleteTarget
+                ? `Tem certeza que deseja excluir "${structureDeleteTarget.name}"? ${structureDeleteTarget.taskIds.length ? `Isso também removerá ${structureDeleteTarget.taskIds.length} tarefa(s) vinculada(s).` : "Nenhuma tarefa será removida."}`
+                : ""}
+            </Dialog.Description>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setStructureDeleteTarget(null)}
+                className="h-10 rounded-xl border border-[var(--border)] px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDeleteStructure()}
+                disabled={structureDeleteLoading}
+                className="h-10 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {structureDeleteLoading ? "Excluindo..." : "Excluir"}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
@@ -1700,6 +2023,9 @@ function Space({
   onRename,
   onMoveUp,
   onMoveDown,
+  onDuplicate,
+  onCopyLink,
+  onDelete,
 }: {
   space: SpaceConfig;
   collapsed?: boolean;
@@ -1711,6 +2037,9 @@ function Space({
   onRename?: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
+  onDuplicate?: () => void;
+  onCopyLink?: () => void;
+  onDelete?: () => void;
 }) {
   return (
     <div className="mb-2">
@@ -1738,8 +2067,11 @@ function Space({
             <DropdownMenu.Content className="z-[150] min-w-44 rounded-md border border-[#e8eaed] bg-white p-1 shadow-xl dark:border-[#2a2e38] dark:bg-[#20232c]">
               <DropdownMenu.Item onSelect={onRename} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Rename</DropdownMenu.Item>
               <DropdownMenu.Item onSelect={onToggleFavorite} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">{favorite ? "Unfavorite" : "Favorite"}</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={onCopyLink} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Copy link</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={onDuplicate} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Duplicate</DropdownMenu.Item>
               <DropdownMenu.Item onSelect={onMoveUp} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Move up</DropdownMenu.Item>
               <DropdownMenu.Item onSelect={onMoveDown} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Move down</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={onDelete} className="rounded px-3 py-2 text-sm text-red-500 outline-none hover:bg-red-50 dark:hover:bg-red-500/10">Delete</DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
@@ -1760,6 +2092,9 @@ function FolderLink({
   onRename,
   onMoveUp,
   onMoveDown,
+  onDuplicate,
+  onCopyLink,
+  onDelete,
 }: {
   spaceId: string;
   list: ListConfig;
@@ -1772,6 +2107,9 @@ function FolderLink({
   onRename?: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
+  onDuplicate?: () => void;
+  onCopyLink?: () => void;
+  onDelete?: () => void;
 }) {
   return (
     <div className={cls("flex h-8 w-full items-center gap-1 rounded px-1 text-left hover:bg-[#eceef1] dark:hover:bg-[#262a34]", active && "bg-[#f1effd] text-[#7b68ee] dark:bg-[#2c2550]")}>
@@ -1795,8 +2133,11 @@ function FolderLink({
           <DropdownMenu.Content className="z-[150] min-w-44 rounded-md border border-[#e8eaed] bg-white p-1 shadow-xl dark:border-[#2a2e38] dark:bg-[#20232c]">
             <DropdownMenu.Item onSelect={onRename} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Rename</DropdownMenu.Item>
             <DropdownMenu.Item onSelect={onToggleFavorite} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">{favorite ? "Unfavorite" : "Favorite"}</DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={onCopyLink} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Copy link</DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={onDuplicate} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Duplicate</DropdownMenu.Item>
             <DropdownMenu.Item onSelect={onMoveUp} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Move up</DropdownMenu.Item>
             <DropdownMenu.Item onSelect={onMoveDown} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Move down</DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={onDelete} className="rounded px-3 py-2 text-sm text-red-500 outline-none hover:bg-red-50 dark:hover:bg-red-500/10">Delete</DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
@@ -2021,12 +2362,14 @@ function GanttView({ tasks, onOpen, dark }: { tasks: Task[]; onOpen: (id: string
 
 function TableView({
   tasks,
+  members,
   groupBy,
   onOpen,
   onPatch,
   onDelete,
 }: {
   tasks: Task[];
+  members: TeamMember[];
   groupBy: GroupBy;
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Partial<Task>) => void;
@@ -2034,21 +2377,90 @@ function TableView({
 }) {
   const grouped = groupTasks(tasks, groupBy);
   return (
-    <div className="min-w-[980px]">
-      <div className="grid h-9 grid-cols-[42px_minmax(240px,1fr)_190px_110px_120px_120px_44px] items-center border-b border-[#e8eaed] px-4 text-[11px] font-semibold text-slate-400 dark:border-[#2a2e38]">
-        <span></span><span>NAME</span><span>ASSIGNEE</span><span>DUE DATE</span><span>PRIORITY</span><span>STORY POINTS</span><span></span>
+    <div className="min-w-[1180px]">
+      <div className="grid h-9 grid-cols-[42px_minmax(240px,1fr)_150px_190px_130px_120px_120px_120px_44px] items-center border-b border-[#e8eaed] px-4 text-[11px] font-semibold text-slate-400 dark:border-[#2a2e38]">
+        <span></span><span>NAME</span><span>STATUS</span><span>ASSIGNEE</span><span>DUE DATE</span><span>PRIORITY</span><span>SETOR</span><span>STORY POINTS</span><span></span>
       </div>
       {grouped.map((group) => (
         <div key={group.key}>
           <div className="flex h-8 items-center gap-2 border-b border-[#e8eaed] px-4 dark:border-[#2a2e38]"><ChevronDown className="size-4 text-slate-400" /><span className="text-xs font-semibold">{group.label}</span><span className="text-xs text-slate-400">{group.tasks.length}</span></div>
           {group.tasks.map((task) => (
-            <div key={task.id} className="grid h-10 grid-cols-[42px_minmax(240px,1fr)_190px_110px_120px_120px_44px] items-center border-b border-[#e8eaed] px-4 text-sm hover:bg-[#f8f9fb] dark:border-[#2a2e38] dark:hover:bg-[#20232c]">
+            <div key={task.id} className="grid h-12 grid-cols-[42px_minmax(240px,1fr)_150px_190px_130px_120px_120px_120px_44px] items-center border-b border-[#e8eaed] px-4 text-sm hover:bg-[#f8f9fb] dark:border-[#2a2e38] dark:hover:bg-[#20232c]">
               <button onClick={() => onPatch(task.id, { status: task.status === "complete" ? "todo" : "complete" })}><StatusDot status={task.status} /></button>
               <button onClick={() => onOpen(task.id)} className="truncate text-left">{task.title}</button>
-              <span className="flex -space-x-2">{(task.assignees ?? []).map((id) => <Avatar key={id} id={id} />)}</span>
-              <span>{todayLabel(task.dueDate)}</span>
-              <PriorityFlag priority={task.priority} />
-              <span>{task.storyPoints ?? 0}</span>
+              <select
+                value={task.status}
+                onChange={(event) => onPatch(task.id, { status: event.target.value as StatusKey })}
+                className="rounded border border-[#e8eaed] bg-transparent px-2 py-1 text-xs outline-none dark:border-[#2a2e38]"
+              >
+                {(Object.keys(statusConfig) as StatusKey[]).map((status) => (
+                  <option key={status} value={status}>
+                    {statusConfig[status].label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={(task.assignees ?? [])[0] ?? ""}
+                onChange={(event) => onPatch(task.id, { assignees: event.target.value ? [event.target.value] : [] })}
+                className="rounded border border-[#e8eaed] bg-transparent px-2 py-1 text-xs outline-none dark:border-[#2a2e38]"
+              >
+                <option value="">Unassigned</option>
+                {members.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={task.dueDate}
+                onChange={(event) => onPatch(task.id, { dueDate: event.target.value })}
+                className="rounded border border-[#e8eaed] bg-transparent px-2 py-1 text-xs outline-none dark:border-[#2a2e38]"
+              />
+              <select
+                value={task.priority}
+                onChange={(event) => onPatch(task.id, { priority: event.target.value as Priority })}
+                className="rounded border border-[#e8eaed] bg-transparent px-2 py-1 text-xs outline-none dark:border-[#2a2e38]"
+              >
+                {(Object.keys(priorityConfig) as Priority[]).map((priority) => (
+                  <option key={priority} value={priority}>
+                    {priorityConfig[priority].label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={task.customFields?.sector ?? "Operação"}
+                onChange={(event) =>
+                  onPatch(task.id, {
+                    customFields: {
+                      ...(task.customFields ?? { storyPoints: task.storyPoints ?? 0, environment: "-", sector: "Operação" }),
+                      sector: event.target.value,
+                    },
+                  })
+                }
+                className="rounded border border-[#e8eaed] bg-transparent px-2 py-1 text-xs outline-none dark:border-[#2a2e38]"
+              >
+                {SECTOR_OPTIONS.map((sector) => (
+                  <option key={sector} value={sector}>
+                    {sector}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min={0}
+                value={task.storyPoints ?? 0}
+                onChange={(event) =>
+                  onPatch(task.id, {
+                    storyPoints: Number(event.target.value),
+                    customFields: {
+                      ...(task.customFields ?? { storyPoints: 0, environment: "-", sector: "Operação" }),
+                      storyPoints: Number(event.target.value),
+                    },
+                  })
+                }
+                className="rounded border border-[#e8eaed] bg-transparent px-2 py-1 text-xs outline-none dark:border-[#2a2e38]"
+              />
               <button onClick={() => onDelete(task.id)} className="grid size-8 place-items-center rounded text-slate-400 hover:bg-[#eceef1] dark:hover:bg-[#262a34]"><Trash2 className="size-4" /></button>
             </div>
           ))}
@@ -2112,7 +2524,9 @@ function TaskModal({
 
   function addChecklistItem() {
     if (!newChecklistItem.trim()) return;
-    onPatch(task.id, { checklists: [...(task.checklists ?? []), newChecklistItem.trim()] });
+    onPatch(task.id, {
+      checklists: [...(task.checklists ?? []), { id: uniqueId("check"), title: newChecklistItem.trim(), done: false }],
+    });
     setNewChecklistItem("");
   }
 
@@ -2135,6 +2549,9 @@ function TaskModal({
   function confirmDelete() {
     onDelete(task.id);
   }
+
+  const checklistItems = task.checklists ?? [];
+  const completedChecklistItems = checklistItems.filter((item) => item.done).length;
 
   async function uploadAttachments(files: FileList | null) {
     const selected = Array.from(files ?? []);
@@ -2186,8 +2603,44 @@ function TaskModal({
               {(task.subtasks ?? []).map((subtask) => (
                 <div key={subtask.id} className="flex h-9 items-center gap-3 border-b border-[#e8eaed] px-3 last:border-b-0 dark:border-[#2a2e38]">
                   <button onClick={() => onPatch(task.id, { subtasks: (task.subtasks ?? []).map((item) => item.id === subtask.id ? { ...item, done: !item.done } : item) })}>{subtask.done ? <StatusDot status="complete" /> : <StatusDot status="progress" />}</button>
-                  <span className="text-sm">{subtask.title}</span>
-                  <span className="ml-auto"><Avatar id={subtask.assignee} /></span>
+                  <input
+                    value={subtask.title}
+                    onChange={(event) =>
+                      onPatch(task.id, {
+                        subtasks: (task.subtasks ?? []).map((item) =>
+                          item.id === subtask.id ? { ...item, title: event.target.value } : item,
+                        ),
+                      })
+                    }
+                    className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                  />
+                  <select
+                    value={subtask.assignee}
+                    onChange={(event) =>
+                      onPatch(task.id, {
+                        subtasks: (task.subtasks ?? []).map((item) =>
+                          item.id === subtask.id ? { ...item, assignee: event.target.value } : item,
+                        ),
+                      })
+                    }
+                    className="rounded border border-[#e8eaed] bg-transparent px-2 py-1 text-xs outline-none dark:border-[#2a2e38]"
+                  >
+                    {members.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() =>
+                      onPatch(task.id, {
+                        subtasks: (task.subtasks ?? []).filter((item) => item.id !== subtask.id),
+                      })
+                    }
+                    className="text-slate-400 hover:text-red-500"
+                  >
+                    <X className="size-4" />
+                  </button>
                 </div>
               ))}
               <div className="flex gap-2 border-t border-[#e8eaed] p-3 dark:border-[#2a2e38]">
@@ -2215,13 +2668,53 @@ function TaskModal({
             </div>
           </section>
           <section className="mb-6">
-            <h3 className="mb-3 flex items-center gap-2 font-medium"><Check className="size-4" /> Checklists</h3>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="flex items-center gap-2 font-medium"><Check className="size-4" /> Checklists</h3>
+              <span className="text-xs text-slate-500">
+                {completedChecklistItems}/{checklistItems.length || 0} concluídos
+              </span>
+            </div>
+            <div className="mb-3 h-2 overflow-hidden rounded-full bg-[#eceef1] dark:bg-[#262a34]">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all"
+                style={{ width: `${checklistItems.length ? (completedChecklistItems / checklistItems.length) * 100 : 0}%` }}
+              />
+            </div>
             <div className="overflow-hidden rounded-lg border border-[#e8eaed] dark:border-[#2a2e38]">
-              {(task.checklists ?? []).map((item, index) => (
-                <div key={`${item}-${index}`} className="flex h-9 items-center gap-3 border-b border-[#e8eaed] px-3 last:border-b-0 dark:border-[#2a2e38]">
-                  <Check className="size-4 text-emerald-500" />
-                  <span className="text-sm">{item}</span>
-                  <button onClick={() => onPatch(task.id, { checklists: (task.checklists ?? []).filter((_, itemIndex) => itemIndex !== index) })} className="ml-auto text-slate-400 hover:text-red-500"><X className="size-4" /></button>
+              {checklistItems.map((item) => (
+                <div key={item.id} className="flex h-10 items-center gap-3 border-b border-[#e8eaed] px-3 last:border-b-0 dark:border-[#2a2e38]">
+                  <input
+                    type="checkbox"
+                    checked={item.done}
+                    onChange={(event) =>
+                      onPatch(task.id, {
+                        checklists: checklistItems.map((entry) =>
+                          entry.id === item.id ? { ...entry, done: event.target.checked } : entry,
+                        ),
+                      })
+                    }
+                  />
+                  <input
+                    value={item.title}
+                    onChange={(event) =>
+                      onPatch(task.id, {
+                        checklists: checklistItems.map((entry) =>
+                          entry.id === item.id ? { ...entry, title: event.target.value } : entry,
+                        ),
+                      })
+                    }
+                    className={cls("min-w-0 flex-1 bg-transparent text-sm outline-none", item.done && "line-through text-slate-400")}
+                  />
+                  <button
+                    onClick={() =>
+                      onPatch(task.id, {
+                        checklists: checklistItems.filter((entry) => entry.id !== item.id),
+                      })
+                    }
+                    className="ml-auto text-slate-400 hover:text-red-500"
+                  >
+                    <X className="size-4" />
+                  </button>
                 </div>
               ))}
               <div className="flex gap-2 border-t border-[#e8eaed] p-3 dark:border-[#2a2e38]">
@@ -2328,6 +2821,19 @@ function TaskModal({
               ))}
             </select>
           </MetaRow>
+          <MetaRow label="Status">
+            <select
+              value={task.status}
+              onChange={(event) => onPatch(task.id, { status: event.target.value as StatusKey })}
+              className="w-full rounded border border-[#e8eaed] bg-transparent px-2 py-1 outline-none dark:border-[#2a2e38]"
+            >
+              {(Object.keys(statusConfig) as StatusKey[]).map((status) => (
+                <option key={status} value={status}>
+                  {statusConfig[status].label}
+                </option>
+              ))}
+            </select>
+          </MetaRow>
           <MetaRow label="Due date"><input type="date" value={task.dueDate} onChange={(event) => onPatch(task.id, { dueDate: event.target.value })} className="rounded bg-transparent text-orange-500 outline-none" /></MetaRow>
           <MetaRow label="Start date"><input type="date" value={task.startDate} onChange={(event) => onPatch(task.id, { startDate: event.target.value })} className="rounded bg-transparent text-red-500 outline-none" /></MetaRow>
           <MetaRow label="Priority"><select value={task.priority} onChange={(event) => onPatch(task.id, { priority: event.target.value as Priority })} className="rounded bg-transparent outline-none">{(Object.keys(priorityConfig) as Priority[]).map((priority) => <option key={priority} value={priority}>{priorityConfig[priority].label}</option>)}</select></MetaRow>
@@ -2336,8 +2842,28 @@ function TaskModal({
           <MetaRow label="Watchers"><span className="flex -space-x-2">{(task.watchers ?? []).map((id) => <Avatar key={id} id={id} />)}</span></MetaRow>
           <div className="my-5 border-t border-[#e8eaed] pt-5 dark:border-[#2a2e38]">
             <p className="mb-4 text-xs font-semibold text-slate-500">CUSTOM FIELDS</p>
-            <MetaRow label="Story Points"><input type="number" min={0} value={task.storyPoints ?? 0} onChange={(event) => onPatch(task.id, { storyPoints: Number(event.target.value), customFields: { ...(task.customFields ?? { environment: "-" }), storyPoints: Number(event.target.value) } })} className="w-16 rounded bg-transparent outline-none" /></MetaRow>
-            <MetaRow label="Environment"><select value={task.customFields?.environment ?? "-"} onChange={(event) => onPatch(task.id, { customFields: { storyPoints: task.storyPoints ?? 0, environment: event.target.value as CustomFields["environment"] } })} className="rounded bg-transparent outline-none"><option value="-">-</option><option value="Dev">Dev</option><option value="Staging">Staging</option><option value="Production">Production</option></select></MetaRow>
+            <MetaRow label="Story Points"><input type="number" min={0} value={task.storyPoints ?? 0} onChange={(event) => onPatch(task.id, { storyPoints: Number(event.target.value), customFields: { ...(task.customFields ?? { environment: "-", sector: "Operação" }), storyPoints: Number(event.target.value) } })} className="w-16 rounded bg-transparent outline-none" /></MetaRow>
+            <MetaRow label="Setor">
+              <select
+                value={task.customFields?.sector ?? "Operação"}
+                onChange={(event) =>
+                  onPatch(task.id, {
+                    customFields: {
+                      ...(task.customFields ?? { storyPoints: task.storyPoints ?? 0, environment: "-", sector: "Operação" }),
+                      sector: event.target.value,
+                    },
+                  })
+                }
+                className="rounded bg-transparent outline-none"
+              >
+                {SECTOR_OPTIONS.map((sector) => (
+                  <option key={sector} value={sector}>
+                    {sector}
+                  </option>
+                ))}
+              </select>
+            </MetaRow>
+            <MetaRow label="Environment"><select value={task.customFields?.environment ?? "-"} onChange={(event) => onPatch(task.id, { customFields: { ...(task.customFields ?? { storyPoints: task.storyPoints ?? 0, sector: "Operação" }), environment: event.target.value as CustomFields["environment"] } })} className="rounded bg-transparent outline-none"><option value="-">-</option><option value="Dev">Dev</option><option value="Staging">Staging</option><option value="Production">Production</option></select></MetaRow>
           </div>
           <div className="border-t border-[#e8eaed] pt-5 text-xs text-slate-500 dark:border-[#2a2e38]">Created by Santiago Cotto<br />Jun 7, 2026</div>
         </aside>
