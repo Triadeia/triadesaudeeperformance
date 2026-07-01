@@ -111,6 +111,11 @@ export async function POST(
       creator_id: session.id,
       user_id: session.id,
       ai_score: 70,
+      workspace_meta: {
+        source: "meeting",
+        source_kind: "action",
+        meeting_title: meeting.title,
+      },
     }));
 
     if (decisions.length) await supabase.from("meeting_decisions").insert(decisions).throwOnError();

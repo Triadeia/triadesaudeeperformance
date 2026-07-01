@@ -81,6 +81,7 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [syncingDecisionId, setSyncingDecisionId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("overview");
   const [transcriptDraft, setTranscriptDraft] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -180,6 +181,33 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
       setMessage(error instanceof Error ? error.message : "Erro inesperado.");
     } finally {
       setIsProcessing(false);
+    }
+  }
+
+  async function syncDecisionToTask(decision: Decision) {
+    setMessage(null);
+    setSyncingDecisionId(decision.id ?? decision.title);
+    try {
+      const res = await fetch(`/api/meetings/${meetingId}/tasks`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          decision_id: decision.id,
+          title: decision.title,
+          description: decision.description,
+          source_kind: "decision",
+          area: "Reuniões",
+          priority: "medium",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Não foi possível criar a tarefa.");
+      setMessage("Decisão enviada para tarefas.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erro inesperado.");
+    } finally {
+      setSyncingDecisionId(null);
     }
   }
 
@@ -310,6 +338,9 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
           items={decisions}
           empty="Nenhuma decisão extraída."
           icon={<CheckCircle2 className="size-4 text-emerald-600" />}
+          actionLabel="Criar tarefa"
+          onAction={syncDecisionToTask}
+          actionBusyId={syncingDecisionId}
         />
       ) : null}
 
@@ -381,33 +412,54 @@ function ListPanel({
   items,
   empty,
   icon,
+  actionLabel,
+  onAction,
+  actionBusyId,
 }: {
   title: string;
   items: Array<{ id?: string; title: string; description?: string | null; priority?: string | null; area?: string | null; status?: string | null }>;
   empty: string;
   icon: React.ReactNode;
+  actionLabel?: string;
+  onAction?: (item: { id?: string; title: string; description?: string | null; priority?: string | null; area?: string | null; status?: string | null }) => void;
+  actionBusyId?: string | null;
 }) {
   return (
     <section className="panel p-6">
       <h2 className="mb-4 text-xl font-bold">{title}</h2>
       {items.length ? (
         <div className="space-y-2">
-          {items.map((item, index) => (
-            <article key={item.id ?? `${item.title}-${index}`} className="rounded-xl border border-[var(--border)] bg-white p-4">
-              <div className="flex items-start gap-3">
-                <span className="mt-1">{icon}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-slate-900">{item.title}</p>
-                  {item.description ? <p className="mt-1 text-sm text-slate-500">{item.description}</p> : null}
+          {items.map((item, index) => {
+            const itemKey = item.id ?? item.title;
+            return (
+              <article key={item.id ?? `${item.title}-${index}`} className="rounded-xl border border-[var(--border)] bg-white p-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-1">{icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-slate-900">{item.title}</p>
+                    {item.description ? <p className="mt-1 text-sm text-slate-500">{item.description}</p> : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {item.priority || item.status || item.area ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold uppercase text-slate-500">
+                        {item.priority ?? item.status ?? item.area}
+                      </span>
+                    ) : null}
+                    {onAction && actionLabel ? (
+                      <button
+                        type="button"
+                        onClick={() => onAction(item)}
+                        disabled={actionBusyId === itemKey}
+                        className="h-8 rounded-full border border-[var(--border)] px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        {actionBusyId === itemKey ? "..." : actionLabel}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-                {item.priority || item.status || item.area ? (
-                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold uppercase text-slate-500">
-                    {item.priority ?? item.status ?? item.area}
-                  </span>
-                ) : null}
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       ) : (
         <p className="text-sm text-slate-500">{empty}</p>

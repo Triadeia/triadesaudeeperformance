@@ -87,6 +87,7 @@ type Task = {
   timeEstimate: string;
   timeLogged: string;
   meetingId?: string | null;
+  workspaceMeta?: Record<string, unknown>;
   favorite?: boolean;
   position?: number;
 };
@@ -178,287 +179,6 @@ const defaultMembers: TeamMember[] = baseEmployees.map((employee, index) => ({
   color: ["#0f766e", "#7c3aed", "#2563eb", "#ea580c", "#db2777", "#16a34a"][index % 6],
 }));
 
-const seedTasks: Task[] = [
-  {
-    id: "task-auth-flow",
-    title: "Build authentication flow",
-    description: "Implement Google OAuth and email/password login with session handling.",
-    status: "progress",
-    priority: "urgent",
-    assignees: ["SC", "MC"],
-    tags: ["frontend", "backend", "design"],
-    startDate: "2026-06-06",
-    dueDate: "2026-06-09",
-    storyPoints: 8,
-    list: "Sprint 24",
-    space: "Product",
-    folder: "Sprints",
-    dependencies: ["task-oauth-callback"],
-    comments: 3,
-    watchers: ["SC"],
-    subtasks: [
-      { id: "sub-oauth", title: "OAuth callback handler", done: true, assignee: "SC" },
-      { id: "sub-session", title: "Session middleware", done: false, assignee: "SC" },
-      { id: "sub-login", title: "Login UI", done: false, assignee: "MC" },
-    ],
-    checklists: ["Security review", "Smoke test"],
-    customFields: { storyPoints: 8, environment: "Dev" },
-    timeEstimate: "6h",
-    timeLogged: "2h 20m",
-  },
-  {
-    id: "task-custom-fields",
-    title: "Add custom fields to list view",
-    description: "Expose story points, environment, and owner metadata inside table and list views.",
-    status: "progress",
-    priority: "normal",
-    assignees: ["SC", "DR"],
-    tags: ["frontend"],
-    startDate: "2026-06-09",
-    dueDate: "2026-06-11",
-    storyPoints: 5,
-    list: "Sprint 24",
-    space: "Product",
-    folder: "Sprints",
-    dependencies: [],
-    comments: 1,
-    watchers: ["DR"],
-    subtasks: [],
-    checklists: ["Column visibility", "Inline edit"],
-    customFields: { storyPoints: 5, environment: "Dev" },
-    timeEstimate: "4h",
-    timeLogged: "1h",
-  },
-  {
-    id: "task-notification",
-    title: "Notification system",
-    description: "Create assignment, comment, mention, and due-date notifications.",
-    status: "progress",
-    priority: "urgent",
-    assignees: ["SC"],
-    tags: ["backend"],
-    startDate: "2026-06-10",
-    dueDate: "2026-06-26",
-    storyPoints: 13,
-    list: "Sprint 24",
-    space: "Product",
-    folder: "Sprints",
-    dependencies: ["task-auth-flow"],
-    comments: 0,
-    watchers: ["SC", "PN"],
-    subtasks: [],
-    checklists: ["SSE stream", "Read/unread state"],
-    customFields: { storyPoints: 13, environment: "Dev" },
-    timeEstimate: "10h",
-    timeLogged: "0h",
-  },
-  {
-    id: "task-board-flicker",
-    title: "Fix board drag-and-drop flicker",
-    description: "Stabilize card transforms while moving between columns.",
-    status: "todo",
-    priority: "high",
-    assignees: ["DR"],
-    tags: ["bug", "frontend"],
-    startDate: "2026-06-13",
-    dueDate: "2026-06-25",
-    storyPoints: 3,
-    list: "Sprint 24",
-    space: "Product",
-    folder: "Sprints",
-    dependencies: [],
-    comments: 0,
-    watchers: [],
-    subtasks: [],
-    checklists: ["Regression test"],
-    customFields: { storyPoints: 3, environment: "-" },
-    timeEstimate: "2h",
-    timeLogged: "0h",
-  },
-  {
-    id: "task-docs",
-    title: "Write API documentation",
-    description: "Document endpoints, auth, schemas, and webhook examples.",
-    status: "todo",
-    priority: "low",
-    assignees: ["PN"],
-    tags: [],
-    startDate: "2026-06-12",
-    dueDate: "2026-06-14",
-    storyPoints: 2,
-    list: "Sprint 24",
-    space: "Product",
-    folder: "Sprints",
-    dependencies: [],
-    comments: 0,
-    watchers: [],
-    subtasks: [],
-    checklists: [],
-    customFields: { storyPoints: 2, environment: "-" },
-    timeEstimate: "3h",
-    timeLogged: "0h",
-  },
-  {
-    id: "task-query-performance",
-    title: "Optimize task query performance",
-    description: "Tune list payloads and indexes for large workspaces.",
-    status: "todo",
-    priority: "high",
-    assignees: ["LM"],
-    tags: ["backend"],
-    startDate: "2026-06-10",
-    dueDate: "2026-06-12",
-    storyPoints: 8,
-    list: "Sprint 24",
-    space: "Product",
-    folder: "Sprints",
-    dependencies: [],
-    comments: 0,
-    watchers: ["LM"],
-    subtasks: [],
-    checklists: ["Index review"],
-    customFields: { storyPoints: 8, environment: "Staging" },
-    timeEstimate: "6h",
-    timeLogged: "1h",
-  },
-  {
-    id: "task-dark-mode",
-    title: "Dark mode support (theming)",
-    description: "Ship ClickUp-style theme tokens with persisted user preference.",
-    status: "todo",
-    priority: "low",
-    assignees: ["DR"],
-    tags: ["frontend", "design"],
-    startDate: "2026-06-17",
-    dueDate: "2026-06-19",
-    storyPoints: 5,
-    list: "Sprint 24",
-    space: "Product",
-    folder: "Sprints",
-    dependencies: [],
-    comments: 0,
-    watchers: ["MC"],
-    subtasks: [],
-    checklists: ["Light mode", "Dark mode"],
-    customFields: { storyPoints: 5, environment: "-" },
-    timeEstimate: "5h",
-    timeLogged: "0h",
-  },
-  {
-    id: "task-dashboard-layout",
-    title: "Design new dashboard layout",
-    description: "Refresh dashboard cards, shortcuts, and widgets.",
-    status: "review",
-    priority: "high",
-    assignees: ["MC"],
-    tags: ["design"],
-    startDate: "2026-06-24",
-    dueDate: "2026-06-26",
-    storyPoints: 5,
-    list: "Sprint 24",
-    space: "Design",
-    folder: "Mockups",
-    dependencies: [],
-    comments: 0,
-    watchers: ["SC"],
-    subtasks: [],
-    checklists: ["Mobile pass", "Desktop pass"],
-    customFields: { storyPoints: 5, environment: "-" },
-    timeEstimate: "5h",
-    timeLogged: "4h",
-  },
-  {
-    id: "task-tooltips",
-    title: "User onboarding tooltips",
-    description: "Guide new users through List, Board, Gantt, Table, and command palette.",
-    status: "review",
-    priority: "normal",
-    assignees: ["MC", "PN"],
-    tags: ["design", "frontend"],
-    startDate: "2026-06-08",
-    dueDate: "2026-06-10",
-    storyPoints: 5,
-    list: "Sprint 24",
-    space: "Design",
-    folder: "Mockups",
-    dependencies: [],
-    comments: 0,
-    watchers: [],
-    subtasks: [],
-    checklists: ["Copy", "Placement"],
-    customFields: { storyPoints: 5, environment: "-" },
-    timeEstimate: "4h",
-    timeLogged: "1h",
-  },
-  {
-    id: "task-ci",
-    title: "Set up CI pipeline",
-    description: "Run lint, typecheck, unit, e2e and deploy checks on every push.",
-    status: "complete",
-    priority: "normal",
-    assignees: ["LM"],
-    tags: ["backend"],
-    startDate: "2026-06-03",
-    dueDate: "2026-06-05",
-    storyPoints: 3,
-    list: "Sprint 24",
-    space: "Engineering",
-    folder: "Infra",
-    dependencies: [],
-    comments: 0,
-    watchers: ["SC"],
-    subtasks: [],
-    checklists: ["GitHub Actions", "Vercel deploy"],
-    customFields: { storyPoints: 3, environment: "Production" },
-    timeEstimate: "4h",
-    timeLogged: "4h",
-  },
-  {
-    id: "task-mobile-scope",
-    title: "Mobile app MVP scoping",
-    description: "Define first mobile pass for inbox, my work, and quick capture.",
-    status: "todo",
-    priority: "normal",
-    assignees: ["SC"],
-    tags: ["mobile"],
-    startDate: "2026-06-08",
-    dueDate: "2026-06-13",
-    storyPoints: 8,
-    list: "Backlog",
-    space: "Product",
-    dependencies: ["task-query-performance"],
-    comments: 0,
-    watchers: ["SC"],
-    subtasks: [],
-    checklists: ["Scope", "Prototype"],
-    customFields: { storyPoints: 8, environment: "-" },
-    timeEstimate: "8h",
-    timeLogged: "0h",
-  },
-  {
-    id: "task-gantt-deps",
-    title: "Gantt view dependencies",
-    description: "Draw dependency connectors and highlight blocked work.",
-    status: "todo",
-    priority: "high",
-    assignees: ["SC"],
-    tags: ["gantt"],
-    startDate: "2026-06-14",
-    dueDate: "2026-06-18",
-    storyPoints: 8,
-    list: "Backlog",
-    space: "Product",
-    dependencies: ["task-mobile-scope"],
-    comments: 0,
-    watchers: ["SC"],
-    subtasks: [],
-    checklists: ["Connector lines", "Hover cards"],
-    customFields: { storyPoints: 8, environment: "-" },
-    timeEstimate: "6h",
-    timeLogged: "0h",
-  },
-];
-
 const views: { key: ViewMode; label: string; icon: React.ReactNode }[] = [
   { key: "list", label: "List", icon: <List className="size-4" /> },
   { key: "board", label: "Board", icon: <Kanban className="size-4" /> },
@@ -543,7 +263,7 @@ function firstString(value: unknown): string | undefined {
 }
 
 function normalizeTask(value: unknown, index: number): Task {
-  const base = seedTasks[index % seedTasks.length];
+  const base = blankTaskTemplate(index);
   if (!value || typeof value !== "object") return { ...base };
 
   const raw = value as Partial<Task> & Record<string, unknown>;
@@ -601,6 +321,7 @@ function normalizeTask(value: unknown, index: number): Task {
     timeEstimate: typeof raw.timeEstimate === "string" ? raw.timeEstimate : base.timeEstimate,
     timeLogged: typeof raw.timeLogged === "string" ? raw.timeLogged : base.timeLogged,
     meetingId: typeof raw.meetingId === "string" ? raw.meetingId : null,
+    workspaceMeta: raw.workspaceMeta && typeof raw.workspaceMeta === "object" ? (raw.workspaceMeta as Record<string, unknown>) : {},
   };
 }
 
@@ -665,26 +386,31 @@ function normalizeWorkspaceConfig(value: unknown): WorkspaceConfig | null {
 }
 
 function loadStoredTasks(): Task[] {
-  return seedTasks;
+  return [];
 }
 
 function loadStoredSpaces(): SpaceConfig[] {
   return defaultSpaces;
 }
 
-function minutesFromTime(value: string) {
+function secondsFromTime(value: string) {
   const hours = Number(value.match(/(\d+(?:\.\d+)?)h/)?.[1] ?? 0);
   const minutes = Number(value.match(/(\d+)m/)?.[1] ?? 0);
-  return Math.round(hours * 60 + minutes);
+  const seconds = Number(value.match(/(\d+)s/)?.[1] ?? 0);
+  return Math.round(hours * 3600 + minutes * 60 + seconds);
 }
 
-function timeFromMinutes(total: number) {
+function timeFromSeconds(total: number) {
   const safe = Math.max(0, Math.round(total));
-  const hours = Math.floor(safe / 60);
-  const minutes = safe % 60;
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const seconds = safe % 60;
+  if (hours && minutes && seconds) return `${hours}h ${minutes}m ${seconds}s`;
   if (hours && minutes) return `${hours}h ${minutes}m`;
   if (hours) return `${hours}h`;
-  return `${minutes}m`;
+  if (minutes && seconds) return `${minutes}m ${seconds}s`;
+  if (minutes) return `${minutes}m`;
+  return `${seconds}s`;
 }
 
 function readTheme(): AppTheme {
@@ -714,6 +440,38 @@ function moveItem<T>(items: T[], from: number, to: number) {
 
 function uniqueId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function blankTaskTemplate(index: number): Task {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    id: `task-template-${index}`,
+    title: "Nova tarefa",
+    description: "",
+    status: "todo",
+    priority: "normal",
+    assignees: [],
+    tags: [],
+    startDate: today,
+    dueDate: today,
+    storyPoints: 0,
+    list: "Geral",
+    space: "Triade",
+    folder: undefined,
+    dependencies: [],
+    comments: 0,
+    watchers: [],
+    subtasks: [],
+    checklists: [],
+    attachments: [],
+    customFields: { storyPoints: 0, environment: "-" },
+    timeEstimate: "0m",
+    timeLogged: "0m",
+    meetingId: null,
+    workspaceMeta: {},
+    favorite: false,
+    position: index,
+  };
 }
 
 const apiStatusToUi: Record<string, StatusKey> = {
@@ -759,7 +517,7 @@ const uiPriorityToApi: Record<Priority, string> = {
 };
 
 function taskFromApi(apiTask: ApiTask, index: number): Task {
-  const base = seedTasks[index % seedTasks.length];
+  const base = blankTaskTemplate(index);
   const meta = apiTask.workspace_meta && typeof apiTask.workspace_meta === "object" ? apiTask.workspace_meta : {};
   const status = apiStatusToUi[apiTask.status ?? ""] ?? "todo";
   const priority = apiPriorityToUi[apiTask.priority ?? ""] ?? "normal";
@@ -772,17 +530,17 @@ function taskFromApi(apiTask: ApiTask, index: number): Task {
     description: apiTask.description ?? "",
     status,
     priority,
-    assignees: stringArray(meta.assignees).length ? stringArray(meta.assignees) : apiTask.assignee ? [apiTask.assignee.slice(0, 2).toUpperCase()] : base.assignees,
+    assignees: stringArray(meta.assignees).length ? stringArray(meta.assignees) : apiTask.assignee ? [apiTask.assignee.slice(0, 2).toUpperCase()] : [],
     tags: stringArray(meta.tags).length ? stringArray(meta.tags) : [isMeetingTask ? "reunião" : "", areaTag ?? ""].filter(Boolean),
     startDate: firstString(meta.startDate) ?? apiTask.due_date ?? base.startDate,
     dueDate: apiTask.due_date ?? base.dueDate,
     storyPoints: apiTask.score ?? base.storyPoints,
-    list: firstString(meta.list) ?? (apiTask.project?.trim() || (isMeetingTask ? "Reuniões" : "Sprint 24")),
-    space: firstString(meta.space) ?? (isMeetingTask ? "Triade" : (apiTask.area?.trim() || "Product")),
+    list: firstString(meta.list) ?? (apiTask.project?.trim() || (isMeetingTask ? "Reuniões" : "Geral")),
+    space: firstString(meta.space) ?? (isMeetingTask ? "Triade" : (apiTask.area?.trim() || "Triade")),
     folder: firstString(meta.folder) ?? (isMeetingTask ? "Memória da empresa" : base.folder),
     dependencies: stringArray(meta.dependencies),
     comments: typeof meta.comments === "number" ? meta.comments : 0,
-    watchers: stringArray(meta.watchers).length ? stringArray(meta.watchers) : base.watchers,
+    watchers: stringArray(meta.watchers).length ? stringArray(meta.watchers) : [],
     subtasks: Array.isArray(meta.subtasks) ? meta.subtasks : [],
     checklists: stringArray(meta.checklists).length ? stringArray(meta.checklists) : isMeetingTask ? ["Validar decisão", "Executar próximo passo"] : [],
     attachments: stringArray(meta.attachments),
@@ -790,6 +548,7 @@ function taskFromApi(apiTask: ApiTask, index: number): Task {
     timeEstimate: firstString(meta.timeEstimate) ?? base.timeEstimate,
     timeLogged: firstString(meta.timeLogged) ?? "0h",
     meetingId: apiTask.meeting_id ?? null,
+    workspaceMeta: meta,
     position: apiTask.position ?? base.position,
   }, index);
 }
@@ -806,6 +565,7 @@ function taskToApiPayload(task: Task, options: { includeMeetingId?: boolean } = 
     score: task.storyPoints,
     position: task.position ?? 0,
     workspace_meta: {
+      ...(task.workspaceMeta ?? {}),
       assignees: task.assignees ?? [],
       tags: task.tags ?? [],
       startDate: task.startDate,
@@ -892,7 +652,7 @@ type WorkspaceDialogState =
   | null;
 
 export function TasksWorkspace() {
-  const [tasks, setTasks] = useState<Task[]>(seedTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [spaces, setSpaces] = useState<SpaceConfig[]>(defaultSpaces);
   const [members, setMembers] = useState<TeamMember[]>(defaultMembers);
   const [workspaceName, setWorkspaceName] = useState("Triade TSP");
@@ -919,6 +679,8 @@ export function TasksWorkspace() {
   const [dialogMarker, setDialogMarker] = useState("text-violet-500");
   const [dialogEmoji, setDialogEmoji] = useState("🧩");
   const [dialogLoading, setDialogLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1057,43 +819,71 @@ export function TasksWorkspace() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(taskToApiPayload(task, { includeMeetingId: true })),
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error("Falha ao criar tarefa.");
       const saved = (await res.json()) as ApiTask;
-      setTasks((current) => current.map((item) => (item.id === task.id ? taskFromApi(saved, 0) : item)));
+      setTasks((current) => [taskFromApi(saved, current.length), ...current.filter((item) => item.id !== task.id)]);
       setSelectedTaskId(saved.id);
     } catch {
-      // Local mode remains functional when auth/Supabase is unavailable.
+      throw new Error("Falha ao persistir a nova tarefa.");
     }
   }
 
-async function syncPatchTask(task: Task, patch: Partial<Task>) {
-    if (!shouldSyncPatch(patch)) return;
-    if (task.id.startsWith("local-task-")) return;
-    try {
-      await fetch(`/api/tasks/${task.id}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(taskToApiPayload(task)),
-      });
-    } catch {
-      // Keep optimistic local edits; the UI must stay usable offline/demo.
+  async function syncPatchTask(task: Task, patch: Partial<Task>) {
+    if (!shouldSyncPatch(patch)) return null;
+    const response = await fetch(`/api/tasks/${task.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(taskToApiPayload(task)),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.error ?? "Falha ao salvar a alteração.");
     }
+    return data as ApiTask;
   }
 
   function patchTask(id: string, patch: Partial<Task>) {
+    const snapshot = tasks;
     setTasks((current) => {
       const next = current.map((task) => (task.id === id ? { ...task, ...patch } : task));
       const updated = next.find((task) => task.id === id);
-      if (updated) void syncPatchTask(updated, patch);
+      if (updated) {
+        void syncPatchTask(updated, patch)
+          .then((saved) => {
+            if (!saved) return;
+            setTasks((latest) =>
+              latest.map((task) =>
+                task.id === id ? taskFromApi(saved, latest.findIndex((item) => item.id === id)) : task,
+              ),
+            );
+          })
+          .catch(() => {
+            setTasks(snapshot);
+          });
+      }
       return next;
     });
   }
 
-  function deleteTask(id: string) {
-    setTasks((current) => current.filter((task) => task.id !== id));
+  function requestDeleteTask(id: string) {
+    const task = tasks.find((item) => item.id === id) ?? null;
+    setDeleteTarget(task);
+  }
+
+  async function confirmDeleteTask() {
+    if (!deleteTarget) return;
+    const snapshot = tasks;
+    setDeleteLoading(true);
+    setTasks((current) => current.filter((task) => task.id !== deleteTarget.id));
     setSelectedTaskId(null);
-    if (!id.startsWith("task-")) {
-      void fetch(`/api/tasks/${id}`, { method: "DELETE" }).catch(() => undefined);
+    try {
+      const response = await fetch(`/api/tasks/${deleteTarget.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Falha ao excluir tarefa.");
+      setDeleteTarget(null);
+    } catch {
+      setTasks(snapshot);
+    } finally {
+      setDeleteLoading(false);
     }
   }
 
@@ -1184,8 +974,8 @@ async function syncPatchTask(task: Task, patch: Partial<Task>) {
         if (task.id === b.id) return { ...task, position: aPosition };
         return task;
       });
-      void syncPatchTask({ ...a, position: bPosition } as Task, { position: bPosition });
-      void syncPatchTask({ ...b, position: aPosition } as Task, { position: aPosition });
+      void syncPatchTask({ ...a, position: bPosition } as Task, { position: bPosition }).catch(() => undefined);
+      void syncPatchTask({ ...b, position: aPosition } as Task, { position: aPosition }).catch(() => undefined);
       return next;
     });
   }
@@ -1248,37 +1038,42 @@ async function syncPatchTask(task: Task, patch: Partial<Task>) {
     }
   }
 
-  function createTask(status: StatusKey = "todo") {
+  async function createTask(status: StatusKey = "todo") {
+    const snapshot = tasks;
     const taskPosition = Math.max(0, ...tasks.filter((task) => task.list === activeList).map((task) => task.position ?? 0)) + 1;
+    const draft = blankTaskTemplate(tasks.length + 1);
     const task: Task = {
-      ...seedTasks[0],
-      id: uniqueId("local-task"),
-      title: "New task",
-      description: "Describe the work, acceptance criteria, links, and owners.",
+      ...draft,
+      id: uniqueId("task"),
+      title: "Nova tarefa",
+      description: "Descreva a entrega, critérios de aceite, links e responsáveis.",
       status,
       priority: "normal",
-      assignees: ["SC"],
-      tags: [],
-      startDate: "2026-06-25",
-      dueDate: "2026-06-26",
+      assignees: [],
+      tags: activeList ? [activeList] : [],
       storyPoints: 1,
       list: activeList,
-      space: activeSpace?.name ?? "Product",
+      space: activeSpace?.name ?? "Triade",
       folder: activeList === "Sprint 24" ? "Sprints" : undefined,
       dependencies: [],
       comments: 0,
-      watchers: ["SC"],
+      watchers: [],
       subtasks: [],
       checklists: [],
       attachments: [],
       customFields: { storyPoints: 1, environment: "-" },
-      timeEstimate: "1h",
+      timeEstimate: "0m",
       timeLogged: "0h",
       position: taskPosition,
     };
     setTasks((current) => [task, ...current]);
     setSelectedTaskId(task.id);
-    void syncCreateTask(task);
+    try {
+      await syncCreateTask(task);
+    } catch {
+      setTasks(snapshot);
+      setSelectedTaskId(null);
+    }
   }
 
   function moveTask(id: string, status: StatusKey) {
@@ -1482,7 +1277,7 @@ async function syncPatchTask(task: Task, patch: Partial<Task>) {
               favorites={favorites}
               onOpen={setSelectedTaskId}
               onAdd={createTask}
-              onDelete={deleteTask}
+              onDelete={requestDeleteTask}
               onToggleFavorite={(id) => toggleFavorite(`task:${id}`)}
               onMoveUp={(id) => moveTaskByDirection(id, -1)}
               onMoveDown={(id) => moveTaskByDirection(id, 1)}
@@ -1491,7 +1286,7 @@ async function syncPatchTask(task: Task, patch: Partial<Task>) {
           {view === "board" && <BoardView tasks={visibleTasks} onOpen={setSelectedTaskId} onMove={moveTask} onAdd={createTask} />}
           {view === "calendar" && <CalendarView tasks={visibleTasks} onOpen={setSelectedTaskId} />}
           {view === "gantt" && <GanttView tasks={visibleTasks} onOpen={setSelectedTaskId} dark={isDarkTheme} />}
-          {view === "table" && <TableView tasks={visibleTasks} groupBy={groupBy} onOpen={setSelectedTaskId} onPatch={patchTask} onDelete={deleteTask} />}
+          {view === "table" && <TableView tasks={visibleTasks} groupBy={groupBy} onOpen={setSelectedTaskId} onPatch={patchTask} onDelete={requestDeleteTask} />}
         </section>
       </main>
 
@@ -1527,7 +1322,7 @@ async function syncPatchTask(task: Task, patch: Partial<Task>) {
           onSubmit={submitDialog}
         />
       ) : null}
-      {selectedTask ? <TaskModal task={selectedTask} members={members} onClose={() => setSelectedTaskId(null)} onPatch={patchTask} onDelete={deleteTask} /> : null}
+      {selectedTask ? <TaskModal task={selectedTask} members={members} onClose={() => setSelectedTaskId(null)} onPatch={patchTask} onDelete={requestDeleteTask} /> : null}
       {noticeOpen ? <PanelModal title="Notifications" onClose={() => setNoticeOpen(false)}><NotificationList tasks={tasks} /></PanelModal> : null}
       {settingsOpen ? (
         <PanelModal title="Workspace settings" onClose={() => setSettingsOpen(false)}>
@@ -1535,7 +1330,7 @@ async function syncPatchTask(task: Task, patch: Partial<Task>) {
             spaces={spaces}
             tasks={tasks}
             onReset={() => {
-              setTasks(seedTasks);
+              setTasks([]);
               setSpaces(defaultSpaces);
               setWorkspaceName("Triade TSP");
               setMembers(defaultMembers);
@@ -1550,6 +1345,39 @@ async function syncPatchTask(task: Task, patch: Partial<Task>) {
           />
         </PanelModal>
       ) : null}
+      <Dialog.Root
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[130] bg-black/50" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[131] w-[min(92vw,480px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#e8eaed] bg-white p-6 shadow-2xl dark:border-[#2a2e38] dark:bg-[#20232c]">
+            <Dialog.Title className="text-lg font-semibold text-slate-900 dark:text-white">Excluir tarefa</Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm leading-6 text-slate-500">
+              {deleteTarget ? `Tem certeza que deseja excluir "${deleteTarget.title}"? Esta ação não pode ser desfeita.` : ""}
+            </Dialog.Description>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="h-10 rounded-xl border border-[var(--border)] px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDeleteTask()}
+                disabled={deleteLoading}
+                className="h-10 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {deleteLoading ? "Excluindo..." : "Excluir"}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
@@ -1978,7 +1806,7 @@ function TaskModal({
   useEffect(() => {
     if (!timerRunning) return;
     const interval = window.setInterval(() => {
-      onPatch(task.id, { timeLogged: timeFromMinutes(minutesFromTime(task.timeLogged) + 1) });
+      onPatch(task.id, { timeLogged: timeFromSeconds(secondsFromTime(task.timeLogged) + 1) });
     }, 1000);
     return () => window.clearInterval(interval);
   }, [onPatch, task.id, task.timeLogged, timerRunning]);
@@ -2006,7 +1834,7 @@ function TaskModal({
   }
 
   function confirmDelete() {
-    if (window.confirm(`Excluir tarefa "${task.title}"?`)) onDelete(task.id);
+    onDelete(task.id);
   }
 
   async function uploadAttachments(files: FileList | null) {
@@ -2121,10 +1949,16 @@ function TaskModal({
           </section>
           <section>
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Timer className="size-4" /> Time tracking</h3>
-            <div className="grid grid-cols-[1fr_1fr_auto] gap-3 text-sm">
+            <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-3 text-sm">
               <label className="rounded-lg bg-[#fafbfc] p-3 dark:bg-[#15171d]"><span className="block text-xs text-slate-400">LOGGED</span><input value={task.timeLogged} onChange={(event) => onPatch(task.id, { timeLogged: event.target.value })} className="w-full bg-transparent outline-none" /></label>
               <label className="rounded-lg bg-[#fafbfc] p-3 dark:bg-[#15171d]"><span className="block text-xs text-slate-400">ESTIMATE</span><input value={task.timeEstimate} onChange={(event) => onPatch(task.id, { timeEstimate: event.target.value })} className="w-full bg-transparent outline-none" /></label>
-              <button onClick={() => setTimerRunning((value) => !value)} className={cls("grid size-12 place-items-center self-end rounded-lg text-white", timerRunning ? "bg-red-500" : "bg-[#7b68ee]")}>{timerRunning ? <Pause className="size-5" /> : <Play className="size-5" />}</button>
+              <button onClick={() => setTimerRunning((value) => !value)} className={cls("grid size-12 place-items-center self-end rounded-lg text-white", timerRunning ? "bg-amber-500" : "bg-[#7b68ee]")}>{timerRunning ? <Pause className="size-5" /> : <Play className="size-5" />}</button>
+              <button
+                onClick={() => setTimerRunning(false)}
+                className="grid size-12 place-items-center self-end rounded-lg bg-slate-600 text-white"
+              >
+                <Timer className="size-5" />
+              </button>
             </div>
           </section>
         </div>
@@ -2307,9 +2141,9 @@ function SettingsPanel({ spaces, tasks, onReset }: { spaces: SpaceConfig[]; task
       </div>
       <div className="rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
         <div className="mb-2 font-medium">Persistence</div>
-        <div className="text-slate-500">Changes save automatically in this browser.</div>
+        <div className="text-slate-500">Changes persist through the tasks API and workspace settings endpoint.</div>
       </div>
-      <button onClick={() => window.confirm("Reset workspace data?") && onReset()} className="flex h-9 w-full items-center justify-center rounded bg-red-500 text-white hover:bg-red-600">Reset workspace</button>
+      <button onClick={onReset} className="flex h-9 w-full items-center justify-center rounded bg-red-500 text-white hover:bg-red-600">Reset workspace</button>
     </div>
   );
 }
