@@ -97,6 +97,9 @@ const TASK_SELECT_LEGACY = `
   project:projects(name)
 ` as const;
 
+const PRODUCTION_BLOCKED_MESSAGE =
+  "O painel de tarefas foi bloqueado porque as variáveis obrigatórias do Supabase não estão configuradas neste ambiente.";
+
 function pickOne<T>(value: T | T[] | null): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
@@ -148,7 +151,7 @@ export async function GET(request: Request) {
   const offset = clampInt(url.searchParams.get("offset"), 0, 0, 100_000);
 
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ tasks: [], total: 0, hasMore: false, mode: "demo" });
+    return NextResponse.json({ error: PRODUCTION_BLOCKED_MESSAGE }, { status: 503 });
   }
 
   const supabase = await createClient();
@@ -265,28 +268,7 @@ export async function POST(request: Request) {
   const body = parsed.data;
 
   if (!isSupabaseConfigured()) {
-    const now = new Date().toISOString();
-    return NextResponse.json(
-      {
-        id: `task-local-${Date.now()}`,
-        title: body.title,
-        description: body.description ?? "",
-        status: body.status ?? "A Fazer",
-        priority: body.priority ?? "Média",
-        assignee: body.assignee ?? "",
-        project: body.project ?? "",
-        area: body.area ?? "",
-        meeting_id: body.meeting_id ?? null,
-        due_date: body.due_date ?? null,
-        position: body.position ?? 0,
-        score: body.score ?? 0,
-        workspace_meta: body.workspace_meta ?? {},
-        created_at: now,
-        updated_at: now,
-        mode: "demo",
-      },
-      { status: 201 },
-    );
+    return NextResponse.json({ error: PRODUCTION_BLOCKED_MESSAGE }, { status: 503 });
   }
 
   const supabase = await createClient();

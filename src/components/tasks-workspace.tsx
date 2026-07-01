@@ -4,11 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
+  AlertTriangle,
   Bell,
   CalendarDays,
   Check,
-  ChevronDown,
+  ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Columns3,
   Command,
   Flag,
@@ -276,6 +278,43 @@ function todayLabel(iso: string) {
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function parseIsoDate(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function startOfWeek(date: Date) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() - copy.getDay());
+  return copy;
+}
+
+function addDays(date: Date, amount: number) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + amount);
+  return copy;
+}
+
+function addMonths(date: Date, amount: number) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1);
+}
+
+function formatIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatMonthTitle(date: Date) {
+  return date.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 }
 
 function cls(...values: Array<string | false | null | undefined>) {
@@ -835,26 +874,123 @@ function shouldSyncPatch(patch: Partial<Task>) {
 }
 
 async function fetchApiTasks(): Promise<Task[] | null> {
+  const result = await fetchTasksPayload();
+  return result.tasks;
+}
+
+type TasksApiPayload = {
+  tasks: Task[] | null;
+  blockedReason: string | null;
+  error: string | null;
+};
+
+type WorkspaceApiPayload = {
+  workspace: WorkspaceConfig | null;
+  blockedReason: string | null;
+  error: string | null;
+};
+
+type TaskCommandResult = {
+  response: string;
+  taskId?: string | null;
+};
+
+async function parseJsonSafe<T>(response: Response): Promise<T | null> {
+  return response.json().catch(() => null);
+}
+
+function readApiMessage(data: { error?: unknown; message?: unknown } | null, fallback: string) {
+  if (data && typeof data.error === "string" && data.error.trim()) return data.error;
+  if (data && typeof data.message === "string" && data.message.trim()) return data.message;
+  return fallback;
+}
+
+async function fetchTasksPayload(): Promise<TasksApiPayload> {
   const res = await fetch("/api/tasks?limit=500", { cache: "no-store" });
-  if (!res.ok) return null;
-  const data = await res.json().catch(() => null);
-  if (!Array.isArray(data?.tasks)) return null;
-  return data.tasks.map((task: ApiTask, index: number) => taskFromApi(task, index));
+  const data = await parseJsonSafe<{ tasks?: ApiTask[]; mode?: string; error?: string }>(res);
+  if (res.status === 503 || data?.mode === "demo") {
+    return {
+      tasks: null,
+      blockedReason: readApiMessage(data, "O painel de tarefas está em modo de demonstração e foi bloqueado até a configuração da produção."),
+      error: null,
+    };
+  }
+  if (!res.ok) {
+    return {
+      tasks: null,
+      blockedReason: null,
+      error: readApiMessage(data, "Não foi possível carregar as tarefas."),
+    };
+  }
+  if (!Array.isArray(data?.tasks)) {
+    return {
+      tasks: null,
+      blockedReason: null,
+      error: "A resposta da API de tarefas veio incompleta.",
+    };
+  }
+  return {
+    tasks: data.tasks.map((task, index) => taskFromApi(task, index)),
+    blockedReason: null,
+    error: null,
+  };
 }
 
 async function fetchWorkspaceConfig(): Promise<WorkspaceConfig | null> {
+  const result = await fetchWorkspacePayload();
+  return result.workspace;
+}
+
+async function fetchWorkspacePayload(): Promise<WorkspaceApiPayload> {
   const res = await fetch("/api/tasks/workspace", { cache: "no-store" });
-  if (!res.ok) return null;
-  const data = await res.json().catch(() => null);
-  return normalizeWorkspaceConfig(data?.workspace);
+  const data = await parseJsonSafe<{ workspace?: unknown; mode?: string; error?: string }>(res);
+  if (res.status === 503 || data?.mode === "demo") {
+    return {
+      workspace: null,
+      blockedReason: readApiMessage(data, "A configuração do workspace foi bloqueada até a produção estar configurada."),
+      error: null,
+    };
+  }
+  if (!res.ok) {
+    return {
+      workspace: null,
+      blockedReason: null,
+      error: readApiMessage(data, "Não foi possível carregar a configuração do workspace."),
+    };
+  }
+  return {
+    workspace: normalizeWorkspaceConfig(data?.workspace),
+    blockedReason: null,
+    error: null,
+  };
 }
 
 async function saveWorkspaceConfig(config: WorkspaceConfig) {
-  await fetch("/api/tasks/workspace", {
+  const response = await fetch("/api/tasks/workspace", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(config),
   });
+  if (!response.ok) {
+    const data = await parseJsonSafe<{ error?: string }>(response);
+    throw new Error(readApiMessage(data, "Não foi possível salvar a configuração do workspace."));
+  }
+}
+
+async function runTaskCommand(command: string): Promise<TaskCommandResult> {
+  const response = await fetch("/api/tasks/command", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ command }),
+  });
+  const data = await parseJsonSafe<{ error?: string; response?: string; task?: { id?: string | null } | null }>(response);
+  if (!response.ok) {
+    throw new Error(readApiMessage(data, "Não foi possível executar o comando."));
+  }
+  return {
+    response: data?.response ?? "Comando executado.",
+    taskId: data?.task?.id ?? null,
+  };
 }
 
 type WorkspaceDialogState =
@@ -906,6 +1042,39 @@ export function TasksWorkspace() {
   const [structureDeleteTarget, setStructureDeleteTarget] = useState<StructureDeleteState>(null);
   const [structureDeleteLoading, setStructureDeleteLoading] = useState(false);
   const [pendingRoute, setPendingRoute] = useState<{ spaceId?: string; list?: string } | null>(null);
+  const [productionBlockedReason, setProductionBlockedReason] = useState<string | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+
+  const operationsDisabled = Boolean(productionBlockedReason);
+
+  function publishNotice(message: string | null) {
+    setSyncNotice(message);
+  }
+
+  function blockInteractiveAction() {
+    if (!operationsDisabled) return false;
+    publishNotice(productionBlockedReason ?? "A produção ainda não foi configurada para salvar alterações reais.");
+    return true;
+  }
+
+  async function refreshTasksFromProduction(options: { openTaskId?: string | null } = {}) {
+    const result = await fetchTasksPayload();
+    if (result.blockedReason) {
+      setProductionBlockedReason(result.blockedReason);
+      publishNotice(result.blockedReason);
+      return null;
+    }
+    if (result.error) {
+      publishNotice(result.error);
+      return null;
+    }
+    if (!result.tasks) return null;
+    setTasks(result.tasks);
+    if (options.openTaskId && result.tasks.some((task) => task.id === options.openTaskId)) {
+      setSelectedTaskId(options.openTaskId);
+    }
+    return result.tasks;
+  }
 
   useEffect(() => {
     runtimePeople = {
@@ -938,12 +1107,14 @@ export function TasksWorkspace() {
       setListOrder([]);
       setActiveSpaceId("product");
       setHydrated(true);
-      fetchApiTasks()
-        .then((apiTasks) => {
-    if (apiTasks?.length) {
-            setTasks(apiTasks);
-            const hasMeetingsList = apiTasks.some((task) => task.list === "Reuniões");
-            if (hasMeetingsList && !apiTasks.some((task) => task.list === "Sprint 24")) {
+      fetchTasksPayload()
+        .then((result) => {
+          if (result.blockedReason) setProductionBlockedReason(result.blockedReason);
+          if (result.error) publishNotice(result.error);
+          if (result.tasks?.length) {
+            setTasks(result.tasks);
+            const hasMeetingsList = result.tasks.some((task) => task.list === "Reuniões");
+            if (hasMeetingsList && !result.tasks.some((task) => task.list === "Sprint 24")) {
               setActiveList("Reuniões");
             }
             if (hasMeetingsList) {
@@ -963,10 +1134,13 @@ export function TasksWorkspace() {
             }
           }
         })
-        .catch(() => undefined);
-      fetchWorkspaceConfig()
-        .then((workspace) => {
-          if (!workspace) return;
+        .catch(() => publishNotice("Não foi possível carregar as tarefas da produção."));
+      fetchWorkspacePayload()
+        .then((result) => {
+          if (result.blockedReason) setProductionBlockedReason((current) => current ?? result.blockedReason);
+          if (result.error) publishNotice(result.error);
+          if (!result.workspace) return;
+          const workspace = result.workspace;
           setSpaces(workspace.spaces);
           if (workspace.members?.length) setMembers(workspace.members);
           if (workspace.teams?.length) setTeams(workspace.teams);
@@ -985,7 +1159,7 @@ export function TasksWorkspace() {
           if (workspace.filterPriority) setFilterPriority(workspace.filterPriority);
           if (workspace.sortBy) setSortBy(workspace.sortBy);
         })
-        .catch(() => undefined);
+        .catch(() => publishNotice("Não foi possível carregar a configuração do workspace."));
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -1003,7 +1177,7 @@ export function TasksWorkspace() {
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || operationsDisabled) return;
     const timer = window.setTimeout(() => {
       void saveWorkspaceConfig({
         spaces,
@@ -1023,10 +1197,10 @@ export function TasksWorkspace() {
         groupBy,
         filterPriority,
         sortBy,
-      }).catch(() => undefined);
+      }).catch((error: unknown) => publishNotice(error instanceof Error ? error.message : "Falha ao salvar a configuração do workspace."));
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [activeList, activeSpaceId, collapsedLists, collapsedSpaces, favorites, groupBy, hydrated, language, listOrder, members, notificationPrefs, sortBy, spaceOrder, spaces, teams, filterPriority, view, workspaceName]);
+  }, [activeList, activeSpaceId, collapsedLists, collapsedSpaces, favorites, groupBy, hydrated, language, listOrder, members, notificationPrefs, operationsDisabled, sortBy, spaceOrder, spaces, teams, filterPriority, view, workspaceName]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1129,6 +1303,7 @@ export function TasksWorkspace() {
   }
 
   function patchTask(id: string, patch: Partial<Task>) {
+    if (blockInteractiveAction()) return;
     const snapshot = tasks;
     setTasks((current) => {
       const next = current.map((task) => (task.id === id ? { ...task, ...patch } : task));
@@ -1152,11 +1327,13 @@ export function TasksWorkspace() {
   }
 
   function requestDeleteTask(id: string) {
+    if (blockInteractiveAction()) return;
     const task = tasks.find((item) => item.id === id) ?? null;
     setDeleteTarget(task);
   }
 
   async function confirmDeleteTask() {
+    if (blockInteractiveAction()) return;
     if (!deleteTarget) return;
     const snapshot = tasks;
     setDeleteLoading(true);
@@ -1197,11 +1374,13 @@ export function TasksWorkspace() {
   }
 
   function openWorkspaceRename() {
+    if (blockInteractiveAction()) return;
     setDialog({ kind: "workspace", mode: "rename" });
     setDialogValue(workspaceName);
   }
 
   function openCreateSpace() {
+    if (blockInteractiveAction()) return;
     setDialog({ kind: "space", mode: "create" });
     setDialogValue("");
     setDialogEmoji("🧩");
@@ -1209,18 +1388,21 @@ export function TasksWorkspace() {
   }
 
   function openRenameSpace(space: SpaceConfig) {
+    if (blockInteractiveAction()) return;
     setDialog({ kind: "space", mode: "rename", spaceId: space.id });
     setDialogValue(space.name);
     setDialogEmoji(space.emoji);
   }
 
   function openCreateList(spaceId: string) {
+    if (blockInteractiveAction()) return;
     setDialog({ kind: "list", mode: "create", spaceId });
     setDialogValue("");
     setDialogMarker("text-violet-500");
   }
 
   function openRenameList(spaceId: string, list: ListConfig) {
+    if (blockInteractiveAction()) return;
     setDialog({ kind: "list", mode: "rename", spaceId, listId: list.id });
     setDialogValue(list.name);
     setDialogMarker(list.marker);
@@ -1305,6 +1487,7 @@ export function TasksWorkspace() {
   }
 
   function moveSpace(spaceId: string, direction: -1 | 1) {
+    if (blockInteractiveAction()) return;
     setSpaces((current) => {
       const index = current.findIndex((space) => space.id === spaceId);
       const nextIndex = index + direction;
@@ -1316,6 +1499,7 @@ export function TasksWorkspace() {
   }
 
   function moveList(spaceId: string, listId: string, direction: -1 | 1) {
+    if (blockInteractiveAction()) return;
     setSpaces((current) =>
       current.map((space) => {
         if (space.id !== spaceId) return space;
@@ -1334,6 +1518,7 @@ export function TasksWorkspace() {
   }
 
   function duplicateSpace(spaceId: string) {
+    if (blockInteractiveAction()) return;
     const original = orderedWorkspaceSpaces.find((space) => space.id === spaceId);
     if (!original) return;
     const duplicatedLists = original.lists.map((list) => ({
@@ -1365,6 +1550,7 @@ export function TasksWorkspace() {
   }
 
   function duplicateList(spaceId: string, listId: string) {
+    if (blockInteractiveAction()) return;
     const space = orderedWorkspaceSpaces.find((item) => item.id === spaceId);
     const original = space?.lists.find((list) => list.id === listId);
     if (!space || !original) return;
@@ -1396,6 +1582,7 @@ export function TasksWorkspace() {
   }
 
   function requestDeleteSpace(spaceId: string) {
+    if (blockInteractiveAction()) return;
     const space = orderedWorkspaceSpaces.find((item) => item.id === spaceId);
     if (!space) return;
     const relatedTasks = tasks
@@ -1405,6 +1592,7 @@ export function TasksWorkspace() {
   }
 
   function requestDeleteList(spaceId: string, listId: string) {
+    if (blockInteractiveAction()) return;
     const space = orderedWorkspaceSpaces.find((item) => item.id === spaceId);
     const list = space?.lists.find((item) => item.id === listId);
     if (!space || !list) return;
@@ -1415,6 +1603,7 @@ export function TasksWorkspace() {
   }
 
   async function confirmDeleteStructure() {
+    if (blockInteractiveAction()) return;
     if (!structureDeleteTarget) return;
     const structureSnapshot = spaces;
     const taskSnapshot = tasks;
@@ -1475,6 +1664,7 @@ export function TasksWorkspace() {
   }
 
   function moveTaskByDirection(id: string, direction: -1 | 1) {
+    if (blockInteractiveAction()) return;
     setTasks((current) => {
       const sameList = current.filter((task) => task.list === activeList);
       const index = sameList.findIndex((task) => task.id === id);
@@ -1497,6 +1687,7 @@ export function TasksWorkspace() {
 
   async function submitDialog(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (blockInteractiveAction()) return;
     if (!dialog) return;
     setDialogLoading(true);
     const value = dialogValue.trim();
@@ -1593,6 +1784,7 @@ export function TasksWorkspace() {
   }
 
   async function createTask(status: StatusKey = "todo") {
+    if (blockInteractiveAction()) return;
     const snapshot = tasks;
     const taskPosition = Math.max(0, ...tasks.filter((task) => task.list === activeList).map((task) => task.position ?? 0)) + 1;
     const draft = blankTaskTemplate(tasks.length + 1);
@@ -1631,7 +1823,23 @@ export function TasksWorkspace() {
   }
 
   function moveTask(id: string, status: StatusKey) {
+    if (blockInteractiveAction()) return;
     patchTask(id, { status });
+  }
+
+  async function handleTaskCommand(command: string) {
+    if (blockInteractiveAction()) {
+      return {
+        response: productionBlockedReason ?? "A produção ainda não foi configurada para comandos reais.",
+        taskId: null,
+      };
+    }
+    const result = await runTaskCommand(command);
+    publishNotice(result.response);
+    if (result.taskId) {
+      await refreshTasksFromProduction({ openTaskId: result.taskId });
+    }
+    return result;
   }
 
   function cycleTheme() {
@@ -1762,6 +1970,29 @@ export function TasksWorkspace() {
 
       <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-[#1a1c23]">
         <header className="border-b border-[#e8eaed] dark:border-[#2a2e38]">
+          {productionBlockedReason ? (
+            <div className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">Modo produção bloqueado</p>
+                <p className="mt-1 leading-6">{productionBlockedReason}</p>
+              </div>
+            </div>
+          ) : null}
+          {syncNotice ? (
+            <div className="flex items-start gap-3 border-b border-[#e8eaed] bg-[#f8f9fb] px-4 py-3 text-sm text-slate-600 dark:border-[#2a2e38] dark:bg-[#20232c] dark:text-slate-300">
+              <Bell className="mt-0.5 size-4 shrink-0" />
+              <div className="min-w-0 flex-1">{syncNotice}</div>
+              <button
+                type="button"
+                onClick={() => setSyncNotice(null)}
+                className="rounded p-1 text-slate-400 hover:bg-white/70 dark:hover:bg-black/20"
+                aria-label="Fechar aviso"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : null}
           <div className="flex items-center gap-2 px-4 pt-3 text-sm text-slate-500">
             <span className="grid size-4 place-items-center rounded bg-[#7b68ee] text-[10px] text-white">🚀</span>
             {activeSpace?.name ?? "Triade"} {activeList === "Sprint 24" ? <span>/ Sprints</span> : null}
@@ -1829,6 +2060,7 @@ export function TasksWorkspace() {
               <button onClick={() => setPaletteOpen(true)} className="rounded p-2 hover:bg-[#f4f5f7] dark:hover:bg-[#262a34]"><Search className="size-4" /></button>
               <button
                 onClick={() => createTask()}
+                disabled={operationsDisabled}
                 className="ml-1 flex h-8 items-center gap-1 rounded bg-[#7b68ee] px-3 font-medium text-white hover:bg-[#6c5ce7]"
               >
                 <Plus className="size-4" /> Add Task
@@ -1869,7 +2101,9 @@ export function TasksWorkspace() {
       {paletteOpen ? (
         <CommandPalette
           tasks={tasks}
+          blockedReason={productionBlockedReason}
           onClose={() => setPaletteOpen(false)}
+          onRunCommand={handleTaskCommand}
           onOpenTask={(id) => {
             setSelectedTaskId(id);
             setPaletteOpen(false);
@@ -2299,20 +2533,90 @@ function BoardView({ tasks, onOpen, onMove, onAdd }: { tasks: Task[]; onOpen: (i
 }
 
 function CalendarView({ tasks, onOpen }: { tasks: Task[]; onOpen: (id: string) => void }) {
-  const days = Array.from({ length: 30 }, (_, index) => index + 1);
+  const datedTasks = useMemo(
+    () =>
+      tasks
+        .map((task) => ({ task, date: parseIsoDate(task.dueDate) }))
+        .filter((entry): entry is { task: Task; date: Date } => Boolean(entry.date)),
+    [tasks],
+  );
+  const [monthCursor, setMonthCursor] = useState(() => {
+    const firstTaskDate = datedTasks[0]?.date ?? new Date();
+    return startOfMonth(firstTaskDate);
+  });
+  const firstDay = startOfMonth(monthCursor);
+  const gridStart = startOfWeek(firstDay);
+  const todayIso = formatIsoDate(new Date());
+  const days = Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
+
   return (
     <div className="p-6">
-      <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold">June 2026</h2><span className="text-sm text-slate-500">Month view</span></div>
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold capitalize">{formatMonthTitle(firstDay)}</h2>
+          <span className="text-sm text-slate-500">Visão mensal real das entregas do workspace.</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMonthCursor((current) => addMonths(current, -1))}
+            className="rounded-lg border border-[#e8eaed] p-2 hover:bg-[#f8f9fb] dark:border-[#2a2e38] dark:hover:bg-[#20232c]"
+            aria-label="Mês anterior"
+          >
+            <ChevronLeft className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setMonthCursor(startOfMonth(new Date()))}
+            className="rounded-lg border border-[#e8eaed] px-3 py-2 text-sm hover:bg-[#f8f9fb] dark:border-[#2a2e38] dark:hover:bg-[#20232c]"
+          >
+            Hoje
+          </button>
+          <button
+            type="button"
+            onClick={() => setMonthCursor((current) => addMonths(current, 1))}
+            className="rounded-lg border border-[#e8eaed] p-2 hover:bg-[#f8f9fb] dark:border-[#2a2e38] dark:hover:bg-[#20232c]"
+            aria-label="Próximo mês"
+          >
+            <ChevronRight className="size-4" />
+          </button>
+        </div>
+      </div>
       <div className="grid grid-cols-7 overflow-hidden rounded-lg border border-[#e8eaed] dark:border-[#2a2e38]">
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day} className="border-b border-[#e8eaed] bg-[#fafbfc] p-2 text-xs font-semibold text-slate-400 dark:border-[#2a2e38] dark:bg-[#15171d]">{day}</div>)}
+        {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((day) => (
+          <div key={day} className="border-b border-[#e8eaed] bg-[#fafbfc] p-2 text-xs font-semibold text-slate-400 dark:border-[#2a2e38] dark:bg-[#15171d]">
+            {day}
+          </div>
+        ))}
         {days.map((day) => {
-          const iso = `2026-06-${String(day).padStart(2, "0")}`;
-          const dayTasks = tasks.filter((task) => task.dueDate === iso);
+          const iso = formatIsoDate(day);
+          const dayTasks = datedTasks.filter((entry) => formatIsoDate(entry.date) === iso).map((entry) => entry.task);
+          const inMonth = day.getMonth() === firstDay.getMonth();
           return (
-            <div key={day} className="min-h-[115px] border-b border-r border-[#e8eaed] p-2 dark:border-[#2a2e38]">
-              <span className={cls("text-xs", day === 25 && "rounded-full bg-[#7b68ee] px-2 py-0.5 text-white")}>{day}</span>
+            <div key={iso} className="min-h-[124px] border-b border-r border-[#e8eaed] p-2 dark:border-[#2a2e38]">
+              <span
+                className={cls(
+                  "inline-flex min-w-7 justify-center rounded-full px-2 py-0.5 text-xs",
+                  !inMonth && "text-slate-400",
+                  iso === todayIso && "bg-[#7b68ee] text-white",
+                )}
+              >
+                {day.getDate()}
+              </span>
               <div className="mt-2 space-y-1">
-                {dayTasks.map((task) => <button key={task.id} onClick={() => onOpen(task.id)} className="block w-full truncate rounded bg-[#f1effd] px-2 py-1 text-left text-xs text-[#7b68ee] dark:bg-[#2c2550]">{task.title}</button>)}
+                {dayTasks.length ? (
+                  dayTasks.map((task) => (
+                    <button
+                      key={task.id}
+                      onClick={() => onOpen(task.id)}
+                      className="block w-full truncate rounded bg-[#f1effd] px-2 py-1 text-left text-xs text-[#7b68ee] dark:bg-[#2c2550]"
+                    >
+                      {task.title}
+                    </button>
+                  ))
+                ) : (
+                  <span className="block px-1 text-[11px] text-slate-400">Sem tarefas</span>
+                )}
               </div>
             </div>
           );
@@ -2323,33 +2627,112 @@ function CalendarView({ tasks, onOpen }: { tasks: Task[]; onOpen: (id: string) =
 }
 
 function GanttView({ tasks, onOpen, dark }: { tasks: Task[]; onOpen: (id: string) => void; dark: boolean }) {
-  const days = Array.from({ length: 18 }, (_, index) => index + 4);
-  const px = 68;
+  const datedTasks = useMemo(
+    () =>
+      tasks
+        .map((task) => ({
+          task,
+          start: parseIsoDate(task.startDate) ?? parseIsoDate(task.dueDate),
+          due: parseIsoDate(task.dueDate) ?? parseIsoDate(task.startDate),
+        }))
+        .filter((entry): entry is { task: Task; start: Date; due: Date } => Boolean(entry.start && entry.due)),
+    [tasks],
+  );
+  const [windowStart, setWindowStart] = useState(() => {
+    const anchor = datedTasks[0]?.start ?? new Date();
+    return addDays(anchor, -2);
+  });
+  const px = 72;
+  const days = Array.from({ length: 21 }, (_, index) => addDays(windowStart, index));
+  const todayIso = formatIsoDate(new Date());
+
   return (
-    <div className="h-full min-w-[1100px] overflow-auto bg-[#1a1c23] text-[#e6e8ec]">
+    <div className="h-full min-w-[1180px] overflow-auto bg-[#1a1c23] text-[#e6e8ec]">
+      <div className="sticky left-0 top-0 z-20 flex items-center justify-between border-b border-[#2a2e38] bg-[#1a1c23] px-4 py-3">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Roadmap operacional</h2>
+          <p className="text-xs text-slate-400">
+            {formatMonthTitle(days[0])} até {formatMonthTitle(days[days.length - 1])}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setWindowStart((current) => addDays(current, -7))}
+            className="rounded-lg border border-[#2a2e38] p-2 hover:bg-[#20232c]"
+            aria-label="Semana anterior"
+          >
+            <ChevronLeft className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setWindowStart(addDays(new Date(), -2))}
+            className="rounded-lg border border-[#2a2e38] px-3 py-2 text-sm hover:bg-[#20232c]"
+          >
+            Hoje
+          </button>
+          <button
+            type="button"
+            onClick={() => setWindowStart((current) => addDays(current, 7))}
+            className="rounded-lg border border-[#2a2e38] p-2 hover:bg-[#20232c]"
+            aria-label="Próxima semana"
+          >
+            <ChevronRight className="size-4" />
+          </button>
+        </div>
+      </div>
       <div className="grid" style={{ gridTemplateColumns: `260px ${days.length * px}px` }}>
         <div className="sticky left-0 z-10 border-r border-[#2a2e38] bg-[#1a1c23]">
-          <div className="h-14 border-b border-[#2a2e38] px-4 py-3 text-xs font-semibold text-slate-400">NAME</div>
-          {tasks.map((task) => <button key={task.id} onClick={() => onOpen(task.id)} className="flex h-40px h-10 w-full items-center gap-2 border-b border-[#2a2e38] px-4 text-left text-sm"><StatusDot status={task.status} />{task.title}</button>)}
+          <div className="h-14 border-b border-[#2a2e38] px-4 py-3 text-xs font-semibold text-slate-400">TAREFA</div>
+          {datedTasks.map(({ task }) => (
+            <button
+              key={task.id}
+              onClick={() => onOpen(task.id)}
+              className="flex h-10 w-full items-center gap-2 border-b border-[#2a2e38] px-4 text-left text-sm hover:bg-[#20232c]"
+            >
+              <StatusDot status={task.status} />
+              <span className="truncate">{task.title}</span>
+            </button>
+          ))}
         </div>
         <div>
           <div className="grid h-14 border-b border-[#2a2e38]" style={{ gridTemplateColumns: `repeat(${days.length}, ${px}px)` }}>
-            {days.map((day) => <div key={day} className="border-r border-[#2a2e38] px-2 py-1 text-center text-xs text-slate-400"><div>June 2026</div><div className={day === 8 ? "mx-auto mt-1 grid size-5 place-items-center rounded-full bg-[#7b68ee] text-white" : ""}>{day}</div></div>)}
+            {days.map((day) => {
+              const iso = formatIsoDate(day);
+              return (
+                <div key={iso} className="border-r border-[#2a2e38] px-2 py-1 text-center text-xs text-slate-400">
+                  <div className="capitalize">{day.toLocaleDateString("pt-BR", { month: "short" })}</div>
+                  <div className={cls("mx-auto mt-1 grid size-6 place-items-center rounded-full", iso === todayIso && "bg-[#7b68ee] text-white")}>
+                    {day.getDate()}
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <div className="relative">
-            {tasks.map((task) => {
-              const start = Number(task.startDate?.slice(-2) ?? "4");
-              const due = Number(task.dueDate?.slice(-2) ?? "4");
-              const left = Math.max(0, start - 4) * px + 10;
-              const width = Math.max(1, due - start + 1) * px - 20;
+            {datedTasks.map(({ task, start, due }) => {
+              const normalizedStart = start.getTime() <= due.getTime() ? start : due;
+              const normalizedDue = due.getTime() >= start.getTime() ? due : start;
+              const offsetDays = Math.round((normalizedStart.getTime() - days[0].getTime()) / 86_400_000);
+              const durationDays = Math.max(1, Math.round((normalizedDue.getTime() - normalizedStart.getTime()) / 86_400_000) + 1);
+              const left = Math.max(0, offsetDays) * px + 8;
+              const clippedDuration = Math.min(days.length - Math.max(0, offsetDays), durationDays);
+              const width = Math.max(px - 16, clippedDuration * px - 16);
               return (
                 <div key={task.id} className="relative h-10 border-b border-[#2a2e38]">
-                  {days.map((day) => <span key={day} className="absolute top-0 h-10 border-r border-[#2a2e38]" style={{ left: (day - 4) * px, width: 1 }} />)}
-                  <button onClick={() => onOpen(task.id)} className={cls("absolute top-2 flex h-5 items-center justify-between rounded-full px-2 text-[11px] text-white", dark ? "bg-slate-500" : "bg-[#87909e]")} style={{ left, width }}>
-                    <span className="truncate">{task.title}</span>
-                    <Avatar id={(task.assignees ?? [])[0] ?? "SC"} />
-                  </button>
-                  {(task.dependencies ?? []).length ? <svg className="pointer-events-none absolute inset-0 overflow-visible"><path d={`M ${Math.max(0, start - 5) * px + 40} 20 C ${left - 30} 20 ${left - 30} 20 ${left} 20`} stroke="#87909e" fill="none" strokeWidth="2" /></svg> : null}
+                  {days.map((day, index) => (
+                    <span key={`${task.id}-${formatIsoDate(day)}`} className="absolute top-0 h-10 border-r border-[#2a2e38]" style={{ left: index * px, width: 1 }} />
+                  ))}
+                  {offsetDays < days.length && offsetDays + durationDays > 0 ? (
+                    <button
+                      onClick={() => onOpen(task.id)}
+                      className={cls("absolute top-2 flex h-6 items-center justify-between rounded-full px-2 text-[11px] text-white shadow", dark ? "bg-slate-500" : "bg-[#87909e]")}
+                      style={{ left, width }}
+                    >
+                      <span className="truncate">{task.title}</span>
+                      <Avatar id={(task.assignees ?? [])[0] ?? "SC"} />
+                    </button>
+                  ) : null}
                 </div>
               );
             })}
@@ -2470,16 +2853,87 @@ function TableView({
   );
 }
 
-function CommandPalette({ tasks, onClose, onOpenTask }: { tasks: Task[]; onClose: () => void; onOpenTask: (id: string) => void }) {
+function CommandPalette({
+  tasks,
+  blockedReason,
+  onClose,
+  onOpenTask,
+  onRunCommand,
+}: {
+  tasks: Task[];
+  blockedReason: string | null;
+  onClose: () => void;
+  onOpenTask: (id: string) => void;
+  onRunCommand: (command: string) => Promise<TaskCommandResult>;
+}) {
   const [value, setValue] = useState("");
+  const [commandResponse, setCommandResponse] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const results = tasks.filter((task) => task.title.toLowerCase().includes(value.toLowerCase())).slice(0, 6);
+
+  async function submitCommand() {
+    const command = value.trim();
+    if (!command || submitting) return;
+    setSubmitting(true);
+    try {
+      const result = await onRunCommand(command);
+      setCommandResponse(result.response);
+      if (result.taskId) {
+        onOpenTask(result.taskId);
+      }
+    } catch (error) {
+      setCommandResponse(error instanceof Error ? error.message : "Não foi possível executar o comando.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-[120] bg-black/30 pt-[12vh]" onClick={onClose}>
       <div onClick={(event) => event.stopPropagation()} className="mx-auto w-[640px] overflow-hidden rounded-xl border border-[#e8eaed] bg-white shadow-2xl dark:border-[#2a2e38] dark:bg-[#20232c]">
-        <div className="flex h-12 items-center gap-3 border-b border-[#e8eaed] px-4 dark:border-[#2a2e38]"><Search className="size-4 text-slate-400" /><input autoFocus value={value} onChange={(event) => setValue(event.target.value)} placeholder="Search tasks, commands, people..." className="flex-1 bg-transparent outline-none" /><span className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-400 dark:bg-[#2f333f]">ESC</span></div>
+        <div className="flex h-12 items-center gap-3 border-b border-[#e8eaed] px-4 dark:border-[#2a2e38]">
+          <Search className="size-4 text-slate-400" />
+          <input
+            autoFocus
+            value={value}
+            onChange={(event) => {
+              setValue(event.target.value);
+              setCommandResponse(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void submitCommand();
+              }
+            }}
+            placeholder="Buscar tarefas ou digitar: criar tarefa preparar proposta"
+            className="flex-1 bg-transparent outline-none"
+          />
+          <span className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-400 dark:bg-[#2f333f]">ESC</span>
+        </div>
         <div className="p-2">
-          {(value ? results : tasks.slice(0, 4)).map((task) => <button key={task.id} onClick={() => onOpenTask(task.id)} className="flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left hover:bg-[#f1effd] dark:hover:bg-[#2c2550]"><StatusDot status={task.status} /><span>{task.title}</span><span className="ml-auto text-xs text-slate-400">in {task.list} ↵</span></button>)}
-          <button className="flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-slate-500 hover:bg-[#f1effd] dark:hover:bg-[#2c2550]"><Command className="size-4" />Create task, switch view, group by priority...</button>
+          {blockedReason ? (
+            <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+              {blockedReason}
+            </div>
+          ) : null}
+          {(value ? results : tasks.slice(0, 4)).map((task) => (
+            <button key={task.id} onClick={() => onOpenTask(task.id)} className="flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left hover:bg-[#f1effd] dark:hover:bg-[#2c2550]">
+              <StatusDot status={task.status} />
+              <span>{task.title}</span>
+              <span className="ml-auto text-xs text-slate-400">in {task.list} ↵</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => void submitCommand()}
+            disabled={!value.trim() || submitting || Boolean(blockedReason)}
+            className="mt-1 flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-slate-500 hover:bg-[#f1effd] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-[#2c2550]"
+          >
+            <Command className="size-4" />
+            {submitting ? "Executando comando..." : "Executar comando real no backend"}
+          </button>
+          {commandResponse ? <div className="mt-2 rounded-lg bg-[#f8f9fb] px-3 py-2 text-sm text-slate-600 dark:bg-[#15171d] dark:text-slate-300">{commandResponse}</div> : null}
         </div>
       </div>
     </div>

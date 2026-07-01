@@ -5,6 +5,8 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
 const WORKSPACE_CONFIG_NAME = "__open_clickup_workspace__";
+const PRODUCTION_BLOCKED_MESSAGE =
+  "A configuração do workspace foi bloqueada porque as variáveis obrigatórias do Supabase não estão configuradas neste ambiente.";
 
 const WorkspaceSchema = z.object({
   workspaceName: z.string().min(1).optional(),
@@ -78,7 +80,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ workspace: null, mode: "demo" });
+    return NextResponse.json({ error: PRODUCTION_BLOCKED_MESSAGE }, { status: 503 });
   }
 
   const supabase = await createClient();
@@ -111,7 +113,7 @@ export async function PUT(request: Request) {
   }
 
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ workspace: parsed.data, mode: "demo" });
+    return NextResponse.json({ error: PRODUCTION_BLOCKED_MESSAGE }, { status: 503 });
   }
 
   const supabase = await createClient();

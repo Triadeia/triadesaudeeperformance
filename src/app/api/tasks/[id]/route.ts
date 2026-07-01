@@ -89,6 +89,9 @@ const TASK_SELECT_LEGACY = `
   project:projects(name)
 ` as const;
 
+const PRODUCTION_BLOCKED_MESSAGE =
+  "O painel de tarefas foi bloqueado porque as variáveis obrigatórias do Supabase não estão configuradas neste ambiente.";
+
 function pickOne<T>(value: T | T[] | null): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
@@ -156,7 +159,7 @@ export async function PUT(
   const body = parsed.data;
 
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ id, ...body, mode: "demo" });
+    return NextResponse.json({ error: PRODUCTION_BLOCKED_MESSAGE }, { status: 503 });
   }
 
   const supabase = await createClient();
@@ -226,7 +229,7 @@ export async function DELETE(
   if (!id) return NextResponse.json({ error: "id obrigatório." }, { status: 422 });
 
   if (!isSupabaseConfigured()) {
-    return new NextResponse(null, { status: 204 });
+    return NextResponse.json({ error: PRODUCTION_BLOCKED_MESSAGE }, { status: 503 });
   }
 
   const supabase = await createClient();

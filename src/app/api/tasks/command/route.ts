@@ -4,6 +4,9 @@ import { getTasks } from "@/lib/repositories";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
+const PRODUCTION_BLOCKED_MESSAGE =
+  "Os comandos de tarefas foram bloqueados porque as variáveis obrigatórias do Supabase não estão configuradas neste ambiente.";
+
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
@@ -11,6 +14,9 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const command = String(body.command || "").trim();
   if (!command) return NextResponse.json({ error: "Digite um comando." }, { status: 422 });
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json({ error: PRODUCTION_BLOCKED_MESSAGE }, { status: 503 });
+  }
 
   const normalized = command.toLocaleLowerCase("pt-BR");
   if (!normalized.startsWith("crie") && !normalized.startsWith("criar")) {
@@ -29,14 +35,6 @@ export async function POST(request: Request) {
     .replace(/^criar?\s+(uma\s+)?tarefa\s+(para|de)?\s*/i, "")
     .trim();
   if (title.length < 3) return NextResponse.json({ error: "Informe o título da tarefa." }, { status: 422 });
-
-  if (!isSupabaseConfigured()) {
-    return NextResponse.json({
-      response: "Tarefa criada no modo de demonstração.",
-      task: { id: `task-local-${Date.now()}`, title },
-      mode: "demo",
-    });
-  }
 
   const supabase = await createClient();
   const { data: profile } = await supabase

@@ -13,6 +13,8 @@ const allowedTypes = new Set([
   "image/png",
   "image/jpeg",
 ]);
+const PRODUCTION_BLOCKED_MESSAGE =
+  "O upload foi bloqueado porque as variáveis obrigatórias do Supabase não estão configuradas neste ambiente.";
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -26,7 +28,7 @@ export async function POST(request: Request) {
   if (!allowedTypes.has(file.type) || file.size > maxSize) {
     return NextResponse.json({ error: "Tipo não permitido ou arquivo acima de 20 MB." }, { status: 422 });
   }
-  if (!isSupabaseConfigured()) return NextResponse.json({ uploaded: true, mode: "demo" });
+  if (!isSupabaseConfigured()) return NextResponse.json({ error: PRODUCTION_BLOCKED_MESSAGE }, { status: 503 });
 
   const supabase = await createClient();
   const { data: profile } = await supabase
