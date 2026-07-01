@@ -203,12 +203,6 @@ export default function TableView({
 
   const bulkDelete = () => {
     if (selected.size === 0) return;
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Excluir ${selected.size} tarefa(s)?`)
-    ) {
-      return;
-    }
     Array.from(selected).forEach((id) => onTaskDelete(id));
     clearSelection();
   };

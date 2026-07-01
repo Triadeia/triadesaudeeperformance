@@ -41,6 +41,7 @@ type StatusKey = "todo" | "progress" | "review" | "complete";
 type Priority = "urgent" | "high" | "normal" | "low";
 type GroupBy = "status" | "priority" | "assignee" | "none";
 type AppTheme = "light" | "dark" | "navy";
+type WorkspaceLanguage = "pt-BR" | "en-US";
 
 type Subtask = { id: string; title: string; done: boolean; assignee: string };
 type TaskAttachment = {
@@ -50,13 +51,18 @@ type TaskAttachment = {
   size?: number;
 };
 type CustomFields = { storyPoints: number; environment: "Dev" | "Staging" | "Production" | "-" };
-type TeamMember = { id: string; name: string; email: string; role: string; area: string; active: boolean; color: string };
+type TeamDefinition = { id: string; name: string; emoji: string; color: string; memberIds: string[] };
+type NotificationPrefs = { desktopAlerts: boolean; emailDigest: boolean; dueSoon: boolean; meetingSync: boolean };
+type TeamMember = { id: string; name: string; email: string; role: string; area: string; active: boolean; color: string; teamId?: string };
 type ListConfig = { id: string; name: string; marker: string; favorite?: boolean; collapsed?: boolean };
 type SpaceConfig = { id: string; name: string; emoji: string; favorite?: boolean; collapsed?: boolean; lists: ListConfig[] };
 type WorkspaceConfig = {
   spaces: SpaceConfig[];
   members: TeamMember[];
+  teams?: TeamDefinition[];
   workspaceName?: string;
+  language?: WorkspaceLanguage;
+  notificationPrefs?: NotificationPrefs;
   favorites?: string[];
   collapsedSpaces?: string[];
   collapsedLists?: string[];
@@ -119,12 +125,29 @@ type ApiTask = {
 const THEME_STORAGE_KEY = "tsp-theme";
 const VALID_THEMES: AppTheme[] = ["light", "dark", "navy"];
 
-const people: Record<string, { name: string; color: string }> = {
+let runtimePeople: Record<string, { name: string; color: string }> = {
   SC: { name: "Santiago Cotto", color: "bg-violet-500" },
   MC: { name: "Maya Chen", color: "bg-pink-500" },
   DR: { name: "Drew Rivera", color: "bg-emerald-500" },
   LM: { name: "Leo Martins", color: "bg-sky-500" },
   PN: { name: "Priya Nair", color: "bg-orange-500" },
+};
+
+const QUICK_EMOJIS = ["🚀", "🧩", "⚙️", "🎯", "📈", "📎", "🧠", "✅", "🔥", "💬"];
+const TEAM_EMOJIS = ["🧭", "🎯", "⚙️", "📣", "🧠", "🤝"];
+const TEAM_COLORS = [
+  "bg-violet-500",
+  "bg-sky-500",
+  "bg-emerald-500",
+  "bg-pink-500",
+  "bg-orange-500",
+  "bg-cyan-500",
+];
+const defaultNotificationPrefs: NotificationPrefs = {
+  desktopAlerts: true,
+  emailDigest: false,
+  dueSoon: true,
+  meetingSync: true,
 };
 
 const statusConfig: Record<StatusKey, { label: string; badge: string; color: string; ring: string }> = {
@@ -185,6 +208,40 @@ const defaultMembers: TeamMember[] = baseEmployees.map((employee, index) => ({
   color: ["#0f766e", "#7c3aed", "#2563eb", "#ea580c", "#db2777", "#16a34a"][index % 6],
 }));
 
+function buildPeopleDirectory(members: TeamMember[]) {
+  return members.reduce<Record<string, { name: string; color: string }>>((acc, member, index) => {
+    const tone = TEAM_COLORS[index % TEAM_COLORS.length];
+    acc[member.id] = {
+      name: member.name,
+      color:
+        member.color && member.color.startsWith("bg-")
+          ? member.color
+          : tone,
+    };
+    return acc;
+  }, {});
+}
+
+function buildDefaultTeams(members: TeamMember[]): TeamDefinition[] {
+  const byArea = new Map<string, TeamMember[]>();
+  for (const member of members) {
+    const area = member.area?.trim() || "Operação";
+    byArea.set(area, [...(byArea.get(area) ?? []), member]);
+  }
+  return Array.from(byArea.entries()).map(([area, areaMembers], index) => ({
+    id: `team-${index + 1}`,
+    name: area,
+    emoji: TEAM_EMOJIS[index % TEAM_EMOJIS.length],
+    color: TEAM_COLORS[index % TEAM_COLORS.length],
+    memberIds: areaMembers.map((member) => member.id),
+  }));
+}
+
+runtimePeople = {
+  ...runtimePeople,
+  ...buildPeopleDirectory(defaultMembers),
+};
+
 const views: { key: ViewMode; label: string; icon: React.ReactNode }[] = [
   { key: "list", label: "List", icon: <List className="size-4" /> },
   { key: "board", label: "Board", icon: <Kanban className="size-4" /> },
@@ -195,7 +252,8 @@ const views: { key: ViewMode; label: string; icon: React.ReactNode }[] = [
 
 function todayLabel(iso: string) {
   if (!iso || Number.isNaN(new Date(`${iso}T00:00:00`).getTime())) return "No date";
-  const today = new Date("2026-06-25T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const date = new Date(`${iso}T00:00:00`);
   const diff = Math.round((date.getTime() - today.getTime()) / 86_400_000);
   if (diff === 0) return "Today";
@@ -208,7 +266,7 @@ function cls(...values: Array<string | false | null | undefined>) {
 }
 
 function Avatar({ id, size = "sm" }: { id: string; size?: "sm" | "md" }) {
-  const person = people[id] ?? { name: id, color: "bg-slate-500" };
+  const person = runtimePeople[id] ?? { name: id, color: "bg-slate-500" };
   return (
     <span
       title={person.name}
@@ -406,15 +464,59 @@ function normalizeSpaces(value: unknown): SpaceConfig[] {
   return spaces.length > 0 ? spaces : defaultSpaces;
 }
 
+function normalizeMembers(value: unknown): TeamMember[] {
+  if (!Array.isArray(value) || value.length === 0) return defaultMembers;
+  return value
+    .filter((item): item is Partial<TeamMember> & Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((member, index) => ({
+      id: typeof member.id === "string" && member.id ? member.id : `member-${index + 1}`,
+      name: typeof member.name === "string" && member.name.trim() ? member.name : `Pessoa ${index + 1}`,
+      email: typeof member.email === "string" ? member.email : "",
+      role: typeof member.role === "string" && member.role.trim() ? member.role : "Membro",
+      area: typeof member.area === "string" && member.area.trim() ? member.area : "Operação",
+      active: member.active !== false,
+      color: typeof member.color === "string" && member.color ? member.color : TEAM_COLORS[index % TEAM_COLORS.length],
+      teamId: typeof member.teamId === "string" && member.teamId ? member.teamId : undefined,
+    }));
+}
+
+function normalizeTeams(value: unknown, members: TeamMember[]): TeamDefinition[] {
+  if (!Array.isArray(value) || value.length === 0) return buildDefaultTeams(members);
+  return value
+    .filter((item): item is Partial<TeamDefinition> & Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((team, index) => ({
+      id: typeof team.id === "string" && team.id ? team.id : `team-${index + 1}`,
+      name: typeof team.name === "string" && team.name.trim() ? team.name : `Equipe ${index + 1}`,
+      emoji: typeof team.emoji === "string" && team.emoji ? team.emoji : TEAM_EMOJIS[index % TEAM_EMOJIS.length],
+      color: typeof team.color === "string" && team.color ? team.color : TEAM_COLORS[index % TEAM_COLORS.length],
+      memberIds: Array.isArray(team.memberIds) ? team.memberIds.filter((item): item is string => typeof item === "string") : [],
+    }));
+}
+
+function normalizeNotificationPrefs(value: unknown): NotificationPrefs {
+  if (!value || typeof value !== "object") return defaultNotificationPrefs;
+  const raw = value as Partial<NotificationPrefs>;
+  return {
+    desktopAlerts: raw.desktopAlerts ?? defaultNotificationPrefs.desktopAlerts,
+    emailDigest: raw.emailDigest ?? defaultNotificationPrefs.emailDigest,
+    dueSoon: raw.dueSoon ?? defaultNotificationPrefs.dueSoon,
+    meetingSync: raw.meetingSync ?? defaultNotificationPrefs.meetingSync,
+  };
+}
+
 function normalizeWorkspaceConfig(value: unknown): WorkspaceConfig | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<WorkspaceConfig> & Record<string, unknown>;
   const spaces = normalizeSpaces(raw.spaces);
-  const members = Array.isArray(raw.members) && raw.members.length > 0 ? raw.members : defaultMembers;
+  const members = normalizeMembers(raw.members);
+  const teams = normalizeTeams(raw.teams, members);
   return {
     spaces,
     members,
+    teams,
     workspaceName: typeof raw.workspaceName === "string" && raw.workspaceName ? raw.workspaceName : undefined,
+    language: raw.language === "en-US" ? "en-US" : raw.language === "pt-BR" ? "pt-BR" : undefined,
+    notificationPrefs: normalizeNotificationPrefs(raw.notificationPrefs),
     favorites: Array.isArray(raw.favorites) ? raw.favorites.filter((item): item is string => typeof item === "string") : [],
     collapsedSpaces: Array.isArray(raw.collapsedSpaces) ? raw.collapsedSpaces.filter((item): item is string => typeof item === "string") : [],
     collapsedLists: Array.isArray(raw.collapsedLists) ? raw.collapsedLists.filter((item): item is string => typeof item === "string") : [],
@@ -594,10 +696,10 @@ function taskFromApi(apiTask: ApiTask, index: number): Task {
     watchers: stringArray(meta.watchers).length ? stringArray(meta.watchers) : [],
     subtasks: Array.isArray(meta.subtasks) ? meta.subtasks : [],
     checklists: stringArray(meta.checklists).length ? stringArray(meta.checklists) : isMeetingTask ? ["Validar decisão", "Executar próximo passo"] : [],
-    attachments: stringArray(meta.attachments),
+    attachments: attachmentArray(meta.attachments),
     customFields: meta.customFields && typeof meta.customFields === "object" ? meta.customFields : { storyPoints: apiTask.score ?? base.storyPoints, environment: "-" },
     timeEstimate: firstString(meta.timeEstimate) ?? base.timeEstimate,
-    timeLogged: firstString(meta.timeLogged) ?? "0h",
+    timeLogged: firstString(meta.timeLogged) ?? "0m",
     meetingId: apiTask.meeting_id ?? null,
     workspaceMeta: meta,
     position: apiTask.position ?? base.position,
@@ -706,7 +808,10 @@ export function TasksWorkspace() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [spaces, setSpaces] = useState<SpaceConfig[]>(defaultSpaces);
   const [members, setMembers] = useState<TeamMember[]>(defaultMembers);
+  const [teams, setTeams] = useState<TeamDefinition[]>(buildDefaultTeams(defaultMembers));
   const [workspaceName, setWorkspaceName] = useState("Triade TSP");
+  const [language, setLanguage] = useState<WorkspaceLanguage>("pt-BR");
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPrefs>(defaultNotificationPrefs);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [collapsedSpaces, setCollapsedSpaces] = useState<string[]>([]);
   const [collapsedLists, setCollapsedLists] = useState<string[]>([]);
@@ -734,12 +839,22 @@ export function TasksWorkspace() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
+    runtimePeople = {
+      ...runtimePeople,
+      ...buildPeopleDirectory(members),
+    };
+  }, [members]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       setTheme(readTheme());
       setTasks(loadStoredTasks());
       setSpaces(loadStoredSpaces());
       setMembers(defaultMembers);
+      setTeams(buildDefaultTeams(defaultMembers));
       setWorkspaceName("Triade TSP");
+      setLanguage("pt-BR");
+      setNotificationPrefs(defaultNotificationPrefs);
       setFavorites([]);
       setCollapsedSpaces([]);
       setCollapsedLists([]);
@@ -778,7 +893,10 @@ export function TasksWorkspace() {
           if (!workspace) return;
           setSpaces(workspace.spaces);
           if (workspace.members?.length) setMembers(workspace.members);
+          if (workspace.teams?.length) setTeams(workspace.teams);
           if (workspace.workspaceName) setWorkspaceName(workspace.workspaceName);
+          if (workspace.language) setLanguage(workspace.language);
+          if (workspace.notificationPrefs) setNotificationPrefs(workspace.notificationPrefs);
           setFavorites(workspace.favorites ?? []);
           setCollapsedSpaces(workspace.collapsedSpaces ?? []);
           setCollapsedLists(workspace.collapsedLists ?? []);
@@ -811,10 +929,28 @@ export function TasksWorkspace() {
   useEffect(() => {
     if (!hydrated) return;
     const timer = window.setTimeout(() => {
-      void saveWorkspaceConfig({ spaces, members, workspaceName, favorites, collapsedSpaces, collapsedLists, spaceOrder, listOrder, activeList, activeSpaceId, view, groupBy, filterPriority, sortBy }).catch(() => undefined);
+      void saveWorkspaceConfig({
+        spaces,
+        members,
+        teams,
+        workspaceName,
+        language,
+        notificationPrefs,
+        favorites,
+        collapsedSpaces,
+        collapsedLists,
+        spaceOrder,
+        listOrder,
+        activeList,
+        activeSpaceId,
+        view,
+        groupBy,
+        filterPriority,
+        sortBy,
+      }).catch(() => undefined);
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [activeList, activeSpaceId, collapsedLists, collapsedSpaces, favorites, groupBy, hydrated, listOrder, members, sortBy, spaceOrder, spaces, filterPriority, view, workspaceName]);
+  }, [activeList, activeSpaceId, collapsedLists, collapsedSpaces, favorites, groupBy, hydrated, language, listOrder, members, notificationPrefs, sortBy, spaceOrder, spaces, teams, filterPriority, view, workspaceName]);
 
   const visibleTasks = useMemo(() => {
     const searched = tasks.filter((task) => {
@@ -938,6 +1074,29 @@ export function TasksWorkspace() {
     }
   }
 
+  function openRenameActiveList() {
+    const targetSpaceId = activeSpace?.id ?? orderedWorkspaceSpaces[0]?.id ?? "product";
+    const targetList =
+      orderedWorkspaceSpaces
+        .find((space) => space.id === targetSpaceId)
+        ?.lists.find((item) => item.name === activeList) ??
+      activeSpace?.lists[0];
+    if (!targetList) return;
+    openRenameList(targetSpaceId, targetList);
+  }
+
+  function toggleAllSpaceCollapse() {
+    const allIds = orderedWorkspaceSpaces.map((space) => space.id);
+    const shouldCollapse = allIds.some((id) => !collapsedSpaces.includes(id));
+    setCollapsedSpaces(shouldCollapse ? allIds : []);
+  }
+
+  function toggleAllListCollapse() {
+    const allKeys = orderedWorkspaceSpaces.flatMap((space) => space.lists.map((list) => `${space.id}:${list.id}`));
+    const shouldCollapse = allKeys.some((key) => !collapsedLists.includes(key));
+    setCollapsedLists(shouldCollapse ? allKeys : []);
+  }
+
   function openWorkspaceRename() {
     setDialog({ kind: "workspace", mode: "rename" });
     setDialogValue(workspaceName);
@@ -979,6 +1138,71 @@ export function TasksWorkspace() {
   function toggleListCollapse(spaceId: string, listId: string) {
     const key = `${spaceId}:${listId}`;
     setCollapsedLists((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
+  }
+
+  function addMember(member: Omit<TeamMember, "id" | "color">) {
+    const id = member.name
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("")
+      .slice(0, 4) || `M${members.length + 1}`;
+    const color = TEAM_COLORS[members.length % TEAM_COLORS.length];
+    setMembers((current) => [...current, { ...member, id, color }]);
+    if (member.teamId) {
+      setTeams((current) =>
+        current.map((team) =>
+          team.id === member.teamId ? { ...team, memberIds: Array.from(new Set([...team.memberIds, id])) } : team,
+        ),
+      );
+    }
+  }
+
+  function patchMember(memberId: string, patch: Partial<TeamMember>) {
+    setMembers((current) => current.map((member) => (member.id === memberId ? { ...member, ...patch } : member)));
+    if ("teamId" in patch) {
+      setTeams((current) =>
+        current.map((team) => ({
+          ...team,
+          memberIds:
+            patch.teamId === team.id
+              ? Array.from(new Set([...team.memberIds, memberId]))
+              : team.memberIds.filter((id) => id !== memberId),
+        })),
+      );
+    }
+  }
+
+  function removeMember(memberId: string) {
+    setMembers((current) => current.filter((member) => member.id !== memberId));
+    setTeams((current) =>
+      current.map((team) => ({ ...team, memberIds: team.memberIds.filter((id) => id !== memberId) })),
+    );
+  }
+
+  function addTeam(name: string, emoji: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const nextIndex = teams.length;
+    setTeams((current) => [
+      ...current,
+      {
+        id: uniqueId("team"),
+        name: trimmed,
+        emoji: emoji || TEAM_EMOJIS[nextIndex % TEAM_EMOJIS.length],
+        color: TEAM_COLORS[nextIndex % TEAM_COLORS.length],
+        memberIds: [],
+      },
+    ]);
+  }
+
+  function patchTeam(teamId: string, patch: Partial<TeamDefinition>) {
+    setTeams((current) => current.map((team) => (team.id === teamId ? { ...team, ...patch } : team)));
+  }
+
+  function removeTeam(teamId: string) {
+    setTeams((current) => current.filter((team) => team.id !== teamId));
+    setMembers((current) => current.map((member) => (member.teamId === teamId ? { ...member, teamId: undefined } : member)));
   }
 
   function moveSpace(spaceId: string, direction: -1 | 1) {
@@ -1171,12 +1395,26 @@ export function TasksWorkspace() {
       >
           <div className={cls("flex h-[52px] items-center gap-2 border-b px-4", isDarkTheme ? "border-[#2a2e38]" : "border-[#e8eaed]")}>
             <div className="grid size-7 place-items-center rounded-md bg-[#041827] text-[11px] font-black tracking-tight text-emerald-300">TSP</div>
-            <div className="min-w-0">
+          <div className="min-w-0">
             <button type="button" onClick={openWorkspaceRename} className="block truncate font-semibold text-left hover:text-[#7b68ee]">{workspaceName}</button>
             <span className="block truncate text-[11px] text-slate-500">Saúde & Performance</span>
           </div>
-          <ChevronDown className="ml-auto size-4 text-slate-400" />
-          <PanelLeftClose className="size-4 text-slate-400" />
+          <button
+            type="button"
+            title="Expandir ou recolher spaces"
+            onClick={toggleAllSpaceCollapse}
+            className="ml-auto rounded p-1 text-slate-400 hover:bg-[#eceef1] dark:hover:bg-[#262a34]"
+          >
+            <ChevronDown className="size-4" />
+          </button>
+          <button
+            type="button"
+            title="Expandir ou recolher listas"
+            onClick={toggleAllListCollapse}
+            className="rounded p-1 text-slate-400 hover:bg-[#eceef1] dark:hover:bg-[#262a34]"
+          >
+            <PanelLeftClose className="size-4" />
+          </button>
         </div>
         <div className="p-3">
           <label className="flex h-8 items-center gap-2 rounded-md border border-[#e8eaed] bg-white px-2 text-sm text-slate-500 dark:border-[#2a2e38] dark:bg-[#20232c]">
@@ -1246,14 +1484,7 @@ export function TasksWorkspace() {
           <div className="flex items-center px-4 py-1">
             <button
               type="button"
-              onClick={() =>
-                setDialog({
-                  kind: "list",
-                  mode: "rename",
-                  spaceId: activeSpace?.id ?? "product",
-                  listId: activeSpace?.lists.find((item) => item.name === activeList)?.id ?? activeSpace?.lists[0]?.id ?? "list",
-                })
-              }
+              onClick={openRenameActiveList}
               className="text-xl font-semibold hover:text-[#7b68ee]"
             >
               {activeList}
@@ -1266,7 +1497,7 @@ export function TasksWorkspace() {
               <DropdownMenu.Portal>
                 <DropdownMenu.Content className="z-[150] min-w-56 rounded-md border border-[#e8eaed] bg-white p-1 shadow-xl dark:border-[#2a2e38] dark:bg-[#20232c]">
                   <DropdownMenu.Item onSelect={() => setSettingsOpen(true)} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Open settings</DropdownMenu.Item>
-                  <DropdownMenu.Item onSelect={() => setDialog({ kind: "list", mode: "rename", spaceId: activeSpace?.id ?? "product", listId: activeSpace?.lists.find((item) => item.name === activeList)?.id ?? activeSpace?.lists[0]?.id ?? "list" })} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Rename list</DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={openRenameActiveList} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">Rename list</DropdownMenu.Item>
                   <DropdownMenu.Item onSelect={() => createTask()} className="rounded px-3 py-2 text-sm outline-none hover:bg-[#f1effd]">New task</DropdownMenu.Item>
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
@@ -1380,11 +1611,26 @@ export function TasksWorkspace() {
           <SettingsPanel
             spaces={spaces}
             tasks={tasks}
+            teams={teams}
+            members={members}
+            language={language}
+            notificationPrefs={notificationPrefs}
+            onLanguageChange={setLanguage}
+            onNotificationPrefsChange={setNotificationPrefs}
+            onAddMember={addMember}
+            onPatchMember={patchMember}
+            onRemoveMember={removeMember}
+            onAddTeam={addTeam}
+            onPatchTeam={patchTeam}
+            onRemoveTeam={removeTeam}
             onReset={() => {
               setTasks([]);
               setSpaces(defaultSpaces);
               setWorkspaceName("Triade TSP");
               setMembers(defaultMembers);
+              setTeams(buildDefaultTeams(defaultMembers));
+              setLanguage("pt-BR");
+              setNotificationPrefs(defaultNotificationPrefs);
               setFavorites([]);
               setCollapsedSpaces([]);
               setCollapsedLists([]);
@@ -1843,12 +2089,14 @@ function TaskModal({
 }) {
   const [timerRunning, setTimerRunning] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [newChecklistItem, setNewChecklistItem] = useState("");
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [newSubtaskAssignee, setNewSubtaskAssignee] = useState((task.assignees ?? [])[0] ?? "SC");
 
   useEffect(() => {
     setTimerRunning(false);
+    setUploadError(null);
     setNewChecklistItem("");
     setNewSubtaskTitle("");
     setNewSubtaskAssignee((task.assignees ?? [])[0] ?? "SC");
@@ -1892,6 +2140,7 @@ function TaskModal({
     const selected = Array.from(files ?? []);
     if (!selected.length) return;
     setUploadingAttachment(true);
+    setUploadError(null);
     const uploaded: TaskAttachment[] = [];
     try {
       for (const file of selected) {
@@ -1902,7 +2151,7 @@ function TaskModal({
         const response = await fetch("/api/documents/upload", { method: "POST", body: form });
         if (!response.ok) {
           const data = await response.json().catch(() => null);
-          window.alert(data?.error ?? `Falha ao enviar ${file.name}`);
+          setUploadError(data?.error ?? `Falha ao enviar ${file.name}.`);
           continue;
         }
         const data = (await response.json().catch(() => null)) as { documentId?: string; title?: string; mime_type?: string; byte_size?: number } | null;
@@ -1915,7 +2164,7 @@ function TaskModal({
       }
       if (uploaded.length) onPatch(task.id, { attachments: [...(task.attachments ?? []), ...uploaded] });
     } catch {
-      window.alert("Falha de conexão ao enviar anexo.");
+      setUploadError("Falha de conexão ao enviar anexo.");
     } finally {
       setUploadingAttachment(false);
     }
@@ -1990,6 +2239,7 @@ function TaskModal({
           </section>
           <section className="mb-6">
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Paperclip className="size-4" /> Attachments</h3>
+            {uploadError ? <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10">{uploadError}</div> : null}
             <label className="grid min-h-20 cursor-pointer place-items-center rounded-lg border border-dashed border-[#e8eaed] p-4 text-sm text-slate-400 hover:border-[#7b68ee] dark:border-[#2a2e38]">
               <input
                 type="file"
@@ -2047,7 +2297,10 @@ function TaskModal({
               <label className="rounded-lg bg-[#fafbfc] p-3 dark:bg-[#15171d]"><span className="block text-xs text-slate-400">ESTIMATE</span><input value={task.timeEstimate} onChange={(event) => onPatch(task.id, { timeEstimate: event.target.value })} className="w-full bg-transparent outline-none" /></label>
               <button onClick={() => setTimerRunning((value) => !value)} className={cls("grid size-12 place-items-center self-end rounded-lg text-white", timerRunning ? "bg-amber-500" : "bg-[#7b68ee]")}>{timerRunning ? <Pause className="size-5" /> : <Play className="size-5" />}</button>
               <button
-                onClick={() => setTimerRunning(false)}
+                onClick={() => {
+                  setTimerRunning(false);
+                  onPatch(task.id, { timeLogged: "0m" });
+                }}
                 className="grid size-12 place-items-center self-end rounded-lg bg-slate-600 text-white"
               >
                 <Timer className="size-5" />
@@ -2154,14 +2407,31 @@ function WorkspaceDialog({
               />
             </label>
             {dialog?.kind === "space" ? (
-              <label className="block space-y-2 text-sm">
-                <span className="text-slate-500">Emoji</span>
-                <input
-                  value={emoji}
-                  onChange={(event) => onEmojiChange(event.target.value)}
-                  className="h-10 w-full rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none focus:border-[#7b68ee] dark:border-[#2a2e38]"
-                />
-              </label>
+              <div className="space-y-2 text-sm">
+                <label className="block space-y-2">
+                  <span className="text-slate-500">Emoji</span>
+                  <input
+                    value={emoji}
+                    onChange={(event) => onEmojiChange(event.target.value)}
+                    className="h-10 w-full rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none focus:border-[#7b68ee] dark:border-[#2a2e38]"
+                  />
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {QUICK_EMOJIS.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => onEmojiChange(item)}
+                      className={cls(
+                        "grid size-9 place-items-center rounded-lg border border-[#e8eaed] text-lg transition hover:border-[#7b68ee] dark:border-[#2a2e38]",
+                        emoji === item && "border-[#7b68ee] bg-[#f1effd] dark:bg-[#2c2550]",
+                      )}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : null}
             {dialog?.kind === "list" ? (
               <label className="block space-y-2 text-sm">
@@ -2223,21 +2493,246 @@ function NotificationList({ tasks }: { tasks: Task[] }) {
   );
 }
 
-function SettingsPanel({ spaces, tasks, onReset }: { spaces: SpaceConfig[]; tasks: Task[]; onReset: () => void }) {
+function SettingsPanel({
+  spaces,
+  tasks,
+  teams,
+  members,
+  language,
+  notificationPrefs,
+  onLanguageChange,
+  onNotificationPrefsChange,
+  onAddMember,
+  onPatchMember,
+  onRemoveMember,
+  onAddTeam,
+  onPatchTeam,
+  onRemoveTeam,
+  onReset,
+}: {
+  spaces: SpaceConfig[];
+  tasks: Task[];
+  teams: TeamDefinition[];
+  members: TeamMember[];
+  language: WorkspaceLanguage;
+  notificationPrefs: NotificationPrefs;
+  onLanguageChange: (value: WorkspaceLanguage) => void;
+  onNotificationPrefsChange: (value: NotificationPrefs) => void;
+  onAddMember: (member: Omit<TeamMember, "id" | "color">) => void;
+  onPatchMember: (memberId: string, patch: Partial<TeamMember>) => void;
+  onRemoveMember: (memberId: string) => void;
+  onAddTeam: (name: string, emoji: string) => void;
+  onPatchTeam: (teamId: string, patch: Partial<TeamDefinition>) => void;
+  onRemoveTeam: (teamId: string) => void;
+  onReset: () => void;
+}) {
+  const [tab, setTab] = useState<"overview" | "people" | "teams" | "notifications">("overview");
+  const [memberName, setMemberName] = useState("");
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberRole, setMemberRole] = useState("Operação");
+  const [memberArea, setMemberArea] = useState("Operação");
+  const [memberTeamId, setMemberTeamId] = useState("");
+  const [teamName, setTeamName] = useState("");
+  const [teamEmoji, setTeamEmoji] = useState("🧭");
+
+  function submitMember(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = memberName.trim();
+    if (!name) return;
+    onAddMember({
+      name,
+      email: memberEmail.trim(),
+      role: memberRole.trim() || "Membro",
+      area: memberArea.trim() || "Operação",
+      active: true,
+      teamId: memberTeamId || undefined,
+    });
+    setMemberName("");
+    setMemberEmail("");
+    setMemberRole("Operação");
+    setMemberArea("Operação");
+    setMemberTeamId("");
+  }
+
+  function submitTeam(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onAddTeam(teamName, teamEmoji);
+    setTeamName("");
+    setTeamEmoji("🧭");
+  }
+
   return (
     <div className="space-y-4 text-sm">
-      <div className="rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
-        <div className="mb-2 font-medium">Workspace</div>
-        <div className="text-slate-500">Spaces: {spaces.length}</div>
-        <div className="text-slate-500">Lists: {spaces.reduce((total, space) => total + space.lists.length, 0)}</div>
-        <div className="text-slate-500">Tasks: {tasks.length}</div>
+      <div className="flex flex-wrap gap-2">
+        {[
+          ["overview", "Workspace"],
+          ["people", "Pessoas"],
+          ["teams", "Equipes"],
+          ["notifications", "Notificações"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key as "overview" | "people" | "teams" | "notifications")}
+            className={cls(
+              "rounded-lg px-3 py-2 text-sm font-medium transition",
+              tab === key ? "bg-[#7b68ee] text-white" : "bg-[#f4f5f7] text-slate-600 dark:bg-[#262a34] dark:text-slate-200",
+            )}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      <div className="rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
-        <div className="mb-2 font-medium">Persistence</div>
-        <div className="text-slate-500">Changes persist through the tasks API and workspace settings endpoint.</div>
-      </div>
-      <button onClick={onReset} className="flex h-9 w-full items-center justify-center rounded bg-red-500 text-white hover:bg-red-600">Reset workspace</button>
+
+      {tab === "overview" ? (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
+              <div className="mb-2 font-medium">Workspace</div>
+              <div className="text-slate-500">Spaces: {spaces.length}</div>
+              <div className="text-slate-500">Lists: {spaces.reduce((total, space) => total + space.lists.length, 0)}</div>
+              <div className="text-slate-500">Tasks: {tasks.length}</div>
+            </div>
+            <div className="rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
+              <div className="mb-2 font-medium">Estrutura humana</div>
+              <div className="text-slate-500">Pessoas: {members.length}</div>
+              <div className="text-slate-500">Equipes: {teams.length}</div>
+              <div className="text-slate-500">Persistência: API + Supabase</div>
+            </div>
+          </div>
+          <div className="rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
+            <div className="mb-2 font-medium">Idioma</div>
+            <select
+              value={language}
+              onChange={(event) => onLanguageChange(event.target.value as WorkspaceLanguage)}
+              className="h-10 w-full rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none dark:border-[#2a2e38]"
+            >
+              <option value="pt-BR">Português (Brasil)</option>
+              <option value="en-US">English (US)</option>
+            </select>
+          </div>
+          <button onClick={onReset} className="flex h-10 w-full items-center justify-center rounded-lg bg-red-500 text-white hover:bg-red-600">Resetar workspace</button>
+        </>
+      ) : null}
+
+      {tab === "people" ? (
+        <>
+          <form onSubmit={submitMember} className="grid gap-3 rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
+            <div className="font-medium">Adicionar pessoas na empresa</div>
+            <input value={memberName} onChange={(event) => setMemberName(event.target.value)} placeholder="Nome completo" className="h-10 rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none dark:border-[#2a2e38]" />
+            <input value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} placeholder="Email" className="h-10 rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none dark:border-[#2a2e38]" />
+            <div className="grid grid-cols-2 gap-3">
+              <input value={memberRole} onChange={(event) => setMemberRole(event.target.value)} placeholder="Função" className="h-10 rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none dark:border-[#2a2e38]" />
+              <input value={memberArea} onChange={(event) => setMemberArea(event.target.value)} placeholder="Área" className="h-10 rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none dark:border-[#2a2e38]" />
+            </div>
+            <select value={memberTeamId} onChange={(event) => setMemberTeamId(event.target.value)} className="h-10 rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none dark:border-[#2a2e38]">
+              <option value="">Sem equipe</option>
+              {teams.map((team) => (
+                <option key={team.id} value={team.id}>{team.emoji} {team.name}</option>
+              ))}
+            </select>
+            <button type="submit" className="h-10 rounded-lg bg-[#7b68ee] font-medium text-white">Adicionar pessoa</button>
+          </form>
+          <div className="space-y-2">
+            {members.map((member) => (
+              <div key={member.id} className="rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
+                <div className="flex items-center gap-3">
+                  <Avatar id={member.id} size="md" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{member.name}</div>
+                    <div className="truncate text-xs text-slate-500">{member.email || "Sem email"} • {member.role}</div>
+                  </div>
+                  <button type="button" onClick={() => onRemoveMember(member.id)} className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10">Excluir</button>
+                </div>
+                <div className="mt-3 grid grid-cols-[1fr_1fr_auto] gap-2">
+                  <input value={member.area} onChange={(event) => onPatchMember(member.id, { area: event.target.value })} className="h-9 rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none dark:border-[#2a2e38]" />
+                  <select value={member.teamId ?? ""} onChange={(event) => onPatchMember(member.id, { teamId: event.target.value || undefined })} className="h-9 rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none dark:border-[#2a2e38]">
+                    <option value="">Sem equipe</option>
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>{team.name}</option>
+                    ))}
+                  </select>
+                  <label className="flex items-center gap-2 rounded-lg border border-[#e8eaed] px-3 text-xs dark:border-[#2a2e38]">
+                    <input type="checkbox" checked={member.active} onChange={(event) => onPatchMember(member.id, { active: event.target.checked })} />
+                    Ativo
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {tab === "teams" ? (
+        <>
+          <form onSubmit={submitTeam} className="grid gap-3 rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
+            <div className="font-medium">Criar equipes</div>
+            <div className="grid grid-cols-[90px_1fr] gap-3">
+              <input value={teamEmoji} onChange={(event) => setTeamEmoji(event.target.value)} placeholder="Emoji" className="h-10 rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none dark:border-[#2a2e38]" />
+              <input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="Nome da equipe" className="h-10 rounded-lg border border-[#e8eaed] bg-transparent px-3 outline-none dark:border-[#2a2e38]" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {TEAM_EMOJIS.map((item) => (
+                <button key={item} type="button" onClick={() => setTeamEmoji(item)} className="grid size-9 place-items-center rounded-lg border border-[#e8eaed] text-lg dark:border-[#2a2e38]">{item}</button>
+              ))}
+            </div>
+            <button type="submit" className="h-10 rounded-lg bg-[#7b68ee] font-medium text-white">Criar equipe</button>
+          </form>
+          <div className="space-y-2">
+            {teams.map((team) => (
+              <div key={team.id} className="rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">{team.emoji}</span>
+                  <input value={team.name} onChange={(event) => onPatchTeam(team.id, { name: event.target.value })} className="min-w-0 flex-1 bg-transparent font-medium outline-none" />
+                  <button type="button" onClick={() => onRemoveTeam(team.id)} className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10">Excluir</button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                  {(members.filter((member) => member.teamId === team.id || team.memberIds.includes(member.id))).map((member) => (
+                    <span key={member.id} className="rounded-full bg-[#f4f5f7] px-2 py-1 dark:bg-[#262a34]">{member.name}</span>
+                  ))}
+                  {!members.some((member) => member.teamId === team.id || team.memberIds.includes(member.id)) ? <span>Sem pessoas vinculadas</span> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {tab === "notifications" ? (
+        <div className="space-y-3 rounded-lg border border-[#e8eaed] p-3 dark:border-[#2a2e38]">
+          <div className="font-medium">Preferências de notificação</div>
+          <ToggleRow
+            label="Alertas visuais no painel"
+            checked={notificationPrefs.desktopAlerts}
+            onChange={(checked) => onNotificationPrefsChange({ ...notificationPrefs, desktopAlerts: checked })}
+          />
+          <ToggleRow
+            label="Resumo por email"
+            checked={notificationPrefs.emailDigest}
+            onChange={(checked) => onNotificationPrefsChange({ ...notificationPrefs, emailDigest: checked })}
+          />
+          <ToggleRow
+            label="Avisar quando tarefa vence logo"
+            checked={notificationPrefs.dueSoon}
+            onChange={(checked) => onNotificationPrefsChange({ ...notificationPrefs, dueSoon: checked })}
+          />
+          <ToggleRow
+            label="Notificar tarefas vindas de reuniões"
+            checked={notificationPrefs.meetingSync}
+            onChange={(checked) => onNotificationPrefsChange({ ...notificationPrefs, meetingSync: checked })}
+          />
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex items-center justify-between gap-3 rounded-lg border border-[#e8eaed] px-3 py-2 dark:border-[#2a2e38]">
+      <span>{label}</span>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    </label>
   );
 }
 

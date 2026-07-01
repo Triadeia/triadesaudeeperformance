@@ -8,6 +8,7 @@ const WORKSPACE_CONFIG_NAME = "__open_clickup_workspace__";
 
 const WorkspaceSchema = z.object({
   workspaceName: z.string().min(1).optional(),
+  language: z.enum(["pt-BR", "en-US"]).optional(),
   spaces: z.array(
     z.object({
       id: z.string().min(1),
@@ -26,6 +27,17 @@ const WorkspaceSchema = z.object({
       ),
     }),
   ),
+  teams: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        emoji: z.string().min(1),
+        color: z.string().min(1),
+        memberIds: z.array(z.string().min(1)).optional(),
+      }),
+    )
+    .optional(),
   members: z
     .array(
       z.object({
@@ -36,8 +48,17 @@ const WorkspaceSchema = z.object({
         area: z.string().min(1),
         active: z.boolean(),
         color: z.string().min(1).optional(),
+        teamId: z.string().min(1).optional(),
       }),
     )
+    .optional(),
+  notificationPrefs: z
+    .object({
+      desktopAlerts: z.boolean().optional(),
+      emailDigest: z.boolean().optional(),
+      dueSoon: z.boolean().optional(),
+      meetingSync: z.boolean().optional(),
+    })
     .optional(),
   favorites: z.array(z.string().min(1)).optional(),
   collapsedSpaces: z.array(z.string().min(1)).optional(),
