@@ -43,6 +43,12 @@ type GroupBy = "status" | "priority" | "assignee" | "none";
 type AppTheme = "light" | "dark" | "navy";
 
 type Subtask = { id: string; title: string; done: boolean; assignee: string };
+type TaskAttachment = {
+  documentId?: string | null;
+  title: string;
+  mimeType?: string;
+  size?: number;
+};
 type CustomFields = { storyPoints: number; environment: "Dev" | "Staging" | "Production" | "-" };
 type TeamMember = { id: string; name: string; email: string; role: string; area: string; active: boolean; color: string };
 type ListConfig = { id: string; name: string; marker: string; favorite?: boolean; collapsed?: boolean };
@@ -82,7 +88,7 @@ type Task = {
   watchers: string[];
   subtasks: Subtask[];
   checklists: string[];
-  attachments?: string[];
+  attachments?: TaskAttachment[];
   customFields: CustomFields;
   timeEstimate: string;
   timeLogged: string;
@@ -258,6 +264,51 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function attachmentArray(value: unknown): TaskAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): TaskAttachment | null => {
+      if (typeof item === "string") {
+        const title = item.trim();
+        return title ? { title } : null;
+      }
+      if (!item || typeof item !== "object") return null;
+      const raw = item as Record<string, unknown>;
+      const title =
+        typeof raw.title === "string" && raw.title.trim()
+          ? raw.title.trim()
+          : typeof raw.filename === "string" && raw.filename.trim()
+            ? raw.filename.trim()
+            : "";
+      if (!title) return null;
+      const size =
+        typeof raw.size === "number" && Number.isFinite(raw.size)
+          ? raw.size
+          : typeof raw.byte_size === "number" && Number.isFinite(raw.byte_size)
+            ? raw.byte_size
+          : typeof raw.byteSize === "number" && Number.isFinite(raw.byteSize)
+            ? raw.byteSize
+            : undefined;
+      return {
+        documentId:
+          typeof raw.documentId === "string" && raw.documentId
+            ? raw.documentId
+            : typeof raw.document_id === "string" && raw.document_id
+              ? raw.document_id
+              : null,
+        title,
+        mimeType:
+          typeof raw.mimeType === "string"
+            ? raw.mimeType
+            : typeof raw.mime_type === "string"
+              ? raw.mime_type
+              : undefined,
+        size,
+      };
+    })
+    .filter((item): item is TaskAttachment => Boolean(item));
+}
+
 function firstString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
@@ -272,7 +323,7 @@ function normalizeTask(value: unknown, index: number): Task {
   const watchers = stringArray(raw.watchers);
   const dependencies = stringArray(raw.dependencies);
   const checklists = stringArray(raw.checklists);
-  const attachments = stringArray(raw.attachments);
+  const attachments = attachmentArray(raw.attachments);
   const subtasks = Array.isArray(raw.subtasks)
     ? (raw.subtasks as unknown[])
         .filter((item): item is Partial<Subtask> & Record<string, unknown> => Boolean(item) && typeof item === "object")
@@ -1841,7 +1892,7 @@ function TaskModal({
     const selected = Array.from(files ?? []);
     if (!selected.length) return;
     setUploadingAttachment(true);
-    const uploaded: string[] = [];
+    const uploaded: TaskAttachment[] = [];
     try {
       for (const file of selected) {
         const form = new FormData();
@@ -1854,7 +1905,13 @@ function TaskModal({
           window.alert(data?.error ?? `Falha ao enviar ${file.name}`);
           continue;
         }
-        uploaded.push(file.name);
+        const data = (await response.json().catch(() => null)) as { documentId?: string; title?: string; mime_type?: string; byte_size?: number } | null;
+        uploaded.push({
+          documentId: data?.documentId ?? null,
+          title: data?.title ?? file.name,
+          mimeType: data?.mime_type ?? file.type,
+          size: data?.byte_size ?? file.size,
+        });
       }
       if (uploaded.length) onPatch(task.id, { attachments: [...(task.attachments ?? []), ...uploaded] });
     } catch {
@@ -1945,7 +2002,43 @@ function TaskModal({
               />
               <Paperclip className="size-4" /> {uploadingAttachment ? "Uploading..." : "Drop files or click to upload"}
             </label>
-            {(task.attachments ?? []).length ? <div className="mt-2 space-y-1">{(task.attachments ?? []).map((file, index) => <div key={`${file}-${index}`} className="flex h-8 items-center gap-2 rounded bg-[#fafbfc] px-3 text-sm dark:bg-[#15171d]"><Paperclip className="size-4 text-slate-400" />{file}<button onClick={() => onPatch(task.id, { attachments: (task.attachments ?? []).filter((_, fileIndex) => fileIndex !== index) })} className="ml-auto text-slate-400 hover:text-red-500"><X className="size-4" /></button></div>)}</div> : null}
+            {(task.attachments ?? []).length ? (
+              <div className="mt-2 space-y-1">
+                {(task.attachments ?? []).map((file, index) => (
+                  <div
+                    key={`${file.documentId ?? file.title}-${index}`}
+                    className="flex h-8 items-center gap-2 rounded bg-[#fafbfc] px-3 text-sm dark:bg-[#15171d]"
+                  >
+                    <Paperclip className="size-4 text-slate-400" />
+                    {file.documentId ? (
+                      <a
+                        href={`/api/documents/${file.documentId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate text-[#7b68ee] hover:underline"
+                      >
+                        {file.title}
+                      </a>
+                    ) : (
+                      <span className="truncate">{file.title}</span>
+                    )}
+                    {file.size ? (
+                      <span className="text-[11px] text-slate-400">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+                    ) : null}
+                    <button
+                      onClick={() =>
+                        onPatch(task.id, {
+                          attachments: (task.attachments ?? []).filter((_, fileIndex) => fileIndex !== index),
+                        })
+                      }
+                      className="ml-auto text-slate-400 hover:text-red-500"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </section>
           <section>
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Timer className="size-4" /> Time tracking</h3>

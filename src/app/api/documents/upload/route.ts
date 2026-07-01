@@ -56,12 +56,18 @@ export async function POST(request: Request) {
       checksum: createHash("sha256").update(bytes).digest("hex"),
       created_by: session.id,
     })
-    .select("id")
+    .select("id, title, mime_type, byte_size")
     .single();
 
   if (documentError) {
     await supabase.storage.from("organization-files").remove([storagePath]);
     return NextResponse.json({ error: documentError.message }, { status: 400 });
   }
-  return NextResponse.json({ uploaded: true, documentId: document.id });
+  return NextResponse.json({
+    uploaded: true,
+    documentId: document.id,
+    title: document.title,
+    mime_type: document.mime_type,
+    byte_size: document.byte_size,
+  });
 }
